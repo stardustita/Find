@@ -39,6 +39,12 @@ Su Linux/macOS puoi usare `./run.sh`; su Windows `run.bat`.
 | `python -m pumpradar backtest` | hit-rate dei segnali già etichettati |
 | `python -m pumpradar analyze` | Fase 0/2: EV eseguibile per tier/sottogruppi e strategie ombra (docs/FASE0.md, docs/FASE2.md) |
 | `python -m pumpradar optimize` | Fase 3: ottimizzazione controfattuale ingressi×uscite con split temporale (docs/FASE3.md) |
+| `python -m pumpradar census` | Fase 4: tassi base per coorte su tutti i lanci + anomalie (docs/LAB.md) |
+| `python -m pumpradar regime` | Fase 4: meteo di mercato orario (risk_on/neutral/toxic) |
+| `python -m pumpradar factory` | Fase 4: anomalie giudicate con EV sui percorsi, registro ipotesi |
+| `python -m pumpradar actors` | Fase 4: reputazione creator e cartografia wallet |
+| `python -m pumpradar knn <mint>` | Fase 4: gemelli storici del percorso e distribuzione esiti |
+| `python -m pumpradar autopsy` | Fase 4: report automatico (reports/, `--send` per Telegram) |
 | `python -m pumpradar prune` | manutenzione database |
 
 ## Come funziona

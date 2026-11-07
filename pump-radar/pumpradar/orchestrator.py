@@ -95,6 +95,8 @@ class Orchestrator:
             "created_at":ts,"first_seen":time.time(),"init_sol":float(ev.get("solAmount") or 0),"init_mcap_sol":st.mcap_sol,
             "mayhem":int(st.mayhem),"pool":st.pool,"state":"new","last_ts":ts,"creator_sig":ev.get("signature"),
             "quote_mint":st.quote_mint,"lane":lane})
+        try: st.meta["creator_prior"]=int(self.store.q("SELECT COUNT(*) c FROM tokens WHERE creator=? AND created_at<?",(st.creator,ts))[0]["c"]) if st.creator else 0
+        except Exception: st.meta["creator_prior"]=0
         self.trial_until[mint]=time.time()+75.0
         if self.s.trade_stream and self.s.feed in ("pumpportal","both"): self.pp.subscribe_trades([mint])
         asyncio.create_task(self._enrich_meta(st))
@@ -318,6 +320,7 @@ class Orchestrator:
                 if name=="walletgraph": agent.observe(st,{})
                 F.update(agent.features(st) or {})
             except Exception as e: log.debug("agent %s: %s", name, e)
+        F["creator_prior_launches"]=float(st.meta.get("creator_prior",0) or 0)
         return F
     async def _emit(self, st, d, F):
         sig={"mint":st.mint,"ts":time.time(),"tier":d["tier"],"score":d["score"],"price_sol":F.get("price_sol"),"mcap_sol":F.get("mcap_sol"),"age_s":F.get("age_s"),"sol_price":self.enr.sol_price,"gates":d["gates"],"plan":d["plan"],"features":F}
