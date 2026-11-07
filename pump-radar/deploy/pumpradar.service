@@ -1,5 +1,5 @@
 [Unit]
-Description=PumpRadar — raccolta dati pump.fun H24 (paper trading, nessun denaro reale)
+Description=PumpRadar - raccolta dati pump.fun H24 (paper trading, nessun denaro reale)
 After=network-online.target
 Wants=network-online.target
 
