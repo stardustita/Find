@@ -18,7 +18,7 @@ from .ingest.pumpevent import WSOL_MINT, amm_price, is_sol_quote
 from .ingest.stream import PumpPortalStream, parse_trade
 from .notify import Notifier
 from .runner import GradState, PostGradAgent, RunnerBook, RunnerScorer
-from .shadow import pg_pullback_signal, second_leg_signal
+from .shadow import esplosivo60_signal, pg_pullback_signal, second_leg_signal
 from .state import TokenState
 from .store import Store
 
@@ -289,6 +289,11 @@ class Orchestrator:
                 if ctx:
                     st.meta["shadow_sl"]=now; self.store.add_shadow("second_leg","curve",mint,"",now,F.get("mcap_sol",0),ctx); self.stats["shadow_second_leg"]+=1
                     log.info("👻 SHADOW second_leg %s mcap=%.0f SOL dd=%.0f%% buyers60=%d", mint[:8], F.get("mcap_sol",0), ctx["drawdown"]*100, ctx["buyers_60s"])
+            if "shadow_ex" not in st.meta:
+                ctx=esplosivo60_signal(st,F,now)
+                if ctx:
+                    st.meta["shadow_ex"]=now; self.store.add_shadow("esplosivo60","curve",mint,"",now,F.get("mcap_sol",0),ctx); self.stats["shadow_esplosivo60"]+=1
+                    log.info("👻 SHADOW esplosivo60 %s mcap=%.0f SOL ret60=%.0f%% buyers60=%d", mint[:8], F.get("mcap_sol",0), ctx["ret_from_min"]*100, ctx["buyers_60s"])
             d=self.scorer.decide(st,F,self.enr.sol_price); st.last_score=d["score"]; self.stats["scored"]+=1
             if now-st._last_snap>=self.s.snapshot_every_s:
                 st._last_snap=now; self.store.add_snapshot(mint,now,age,F.get("mcap_sol",0),F,d["score"],d.get("p_bond"),d.get("p_2x"),d.get("p_5x"))

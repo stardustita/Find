@@ -36,3 +36,30 @@ Il censimento si popola a ~migliaia di lanci/giorno di `run` acceso. Le prime
 anomalie credibili (n≥150 per coorte) arrivano in giorni; i primi verdetti
 Fabbrica subito dopo. Se nessuna regola supera le soglie in modo stabile,
 il registro lo dirà — ed è una risposta, non un fallimento del processo.
+
+## Primo giro reale (2026-11-07, DB utente: 6.351 lanci censiti)
+
+Tassi base dell'universo: graduation **1,6%**, sopravvivenza 15m **10%**,
+vita mediana **80s**, picco mediano **1,01x**. Baseline Fabbrica (ingresso
++15s su lanci a caso): **EV −24,9%**, mediana −31,8%, positivi 16,1% (n=4.262).
+Questo e' lo zero del mercato.
+
+Esiti della Fabbrica:
+- 🟢 **CANDIDATE `forma_primi_60s:esplosivo`** (+50% nei primi 60s): p(2x) 70,7%
+  vs 13,7% (z=44,9); sui percorsi EV **+34,9%**, mediana **+2,1%**, positivi
+  50,8% (n=490). Avvertenza registrata: la valutazione entra a +15s conoscendo
+  la forma a +60s (**look-ahead**) — il numero e' un limite ottimistico.
+  Risposta: detector ombra `esplosivo60` (scatta a +60s, ingresso al prezzo di
+  quel momento) + controllo anti-leakage in Fabbrica (colonna +60s).
+- ⚫ **DEAD tutte le altre anomalie**, comprese quelle con z altissimi:
+  compratori_60s 10+ (z=19,8 → EV −27,6%), miglior creator seriale (p(2x) 34%
+  → EV −33,8%), buy 20+ SOL nel primo minuto (graduation 5,7% → EV −25,8%).
+  Lezione permanente: **tasso di esito anomalo ≠ EV eseguibile**.
+
+Altre letture dal censimento: 1–3 compratori nei primi 60s = p(2x) 1% (mai
+toccare); creator al primo lancio graduano piu' dei seriali (2,4% vs 1,2%)
+ma spiccano meno; identificata per indirizzo una farm da 154 lanci con 0%
+di esiti e vita mediana 10s.
+
+Prossimo checkpoint: `esplosivo60` in ombra verso n=30 segnali risolti,
+letto in `analyze` (sezione OMBRA, anche per regime).

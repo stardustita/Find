@@ -51,3 +51,18 @@ def test_shadow_evaluation_in_analyze(tmp_path):
                          "sol": 1, "tokens": 1, "mcap_sol": m, "lane": "sol"})
     d = analyze(store)
     assert "second_leg" in d["shadow"] and d["shadow"]["second_leg"]["n"] == 1
+
+def test_esplosivo60_detector():
+    from pumpradar.shadow import esplosivo60_signal
+    now = time.time()
+    st = TokenState(mint="E" * 32, created_at=now - 70, lane="sol")
+    st.min_mcap, st.peak_mcap, st.mcap_sol, st.last_ts = 30.0, 52.0, 50.0, now
+    for i in range(6):
+        st.trades.append({"ts": now - 5, "trader": f"w{i}", "is_buy": True, "sol": 0.3, "mcap_sol": 50.0})
+    F = {"age_s": 70, "mcap_sol": 50.0, "risk_engineered": 0, "risk_distribution": 0}
+    ctx = esplosivo60_signal(st, F, now)
+    assert ctx is not None and ctx["ret_from_min"] > 0.5
+    st.peak_mcap = 100.0                       # gia' ritracciato del 50%: esplosione finita
+    assert esplosivo60_signal(st, F, now) is None
+    st.peak_mcap, st.mcap_sol, F["mcap_sol"] = 52.0, 36.0, 36.0   # solo +20% dal minimo
+    assert esplosivo60_signal(st, F, now) is None

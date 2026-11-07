@@ -239,8 +239,10 @@ def _autopsy(args):
     from .learning.autopsy import build_autopsy, send_telegram
     s=_settings(); md=build_autopsy(_lab_store())
     out=Path("reports"); out.mkdir(exist_ok=True)
-    f=out/f"autopsy-{_t.strftime('%Y-%m-%d')}.md"; f.write_text(md)
-    print(md); print(f"\n[autopsy salvata in {f}]")
+    f=out/f"autopsy-{_t.strftime('%Y-%m-%d')}.md"; f.write_text(md, encoding="utf-8")  # emoji nel report: su Windows il default cp1252 esplode
+    try: print(md)
+    except UnicodeEncodeError: print(md.encode("ascii", "replace").decode())
+    print(f"\n[autopsy salvata in {f}]")
     if args.send:
         print("inviata su Telegram" if send_telegram(s, md) else "Telegram non configurato (TELEGRAM_TOKEN / TELEGRAM_CHAT)")
 

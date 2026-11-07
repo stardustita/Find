@@ -31,10 +31,10 @@ def _members(summaries, dimension, key):
     return [r for r in summaries if fn(r) == key]
 
 
-def _ev_of(rows):
+def _ev_of(rows, delay_s=ENTRY_DELAY_S):
     nets = []
     for r in rows:
-        path = [(ts, m) for ts, m in r["path"] if ts >= r["created_at"] + ENTRY_DELAY_S]
+        path = [(ts, m) for ts, m in r["path"] if ts >= r["created_at"] + delay_s]
         if len(path) < 2:
             continue
         sim = simulate_plan(path, path[0][1], LADDER, 1.8, 0.35, 0.65, CURVE_COST, None, path[0][0])
@@ -53,24 +53,36 @@ def run_factory(store, min_n=150, zmin=3.0, persist=True) -> dict:
     c = census(store, summaries)
     base = _ev_of(summaries)
     registered = {r["rule_key"] for r in store.list_hypotheses(500)}
-    rows = []
+    rows, seen = [], set()
     for a in c["anomalies"]:
         if a["n"] < min_n or a["z"] < zmin:
             continue
-        ev = _ev_of(_members(summaries, a["dimension"], a["key"]))
+        key = f"{a['dimension']}:{a['key']}"
+        if key in seen:
+            continue                      # stessa regola da due metriche: una sola valutazione
+        seen.add(key)
+        members = _members(summaries, a["dimension"], a["key"])
+        ev = _ev_of(members)
         verdict = "DEAD"
         if (ev["n"] >= 100 and ev["ev_pct"] is not None and ev["ev_pct"] > 0
                 and ev["pos_share"] >= 0.35 and base["ev_pct"] is not None
                 and ev["ev_pct"] >= base["ev_pct"] + 5):
             verdict = "CANDIDATE"
-        key = f"{a['dimension']}:{a['key']}"
         row = {"rule_key": key, "dimension": a["dimension"], "cohort": a["key"],
                "metric": a["metric"], "z": a["z"], **ev, "baseline_ev_pct": base["ev_pct"],
                "verdict": verdict, "already": key in registered}
+        detail = f"anomalia {a['metric']}={a['value']:.3f} vs base {a['baseline']:.3f}"
+        if verdict == "CANDIDATE":
+            # CONTROLLO ANTI-LEAKAGE: la valutazione a +15s conosce gia' la forma
+            # (definita sui primi 60s). Ri-valutiamo con ingresso a +60s, il primo
+            # istante in cui la regola e' davvero conoscibile dal vivo.
+            ev60 = _ev_of(members, 60)
+            row.update({"ev60_pct": ev60["ev_pct"], "med60_pct": ev60["med_pct"],
+                        "pos60": ev60["pos_share"], "n60": ev60["n"]})
+            detail += f" | anti-leakage +60s: EV={ev60['ev_pct']}% pos={ev60['pos_share']} n={ev60['n']}"
         if persist and not row["already"] and ev["n"]:
             store.add_hypothesis(key, a["dimension"], a["key"], ev["n"], ev["ev_pct"], ev["med_pct"],
-                                 ev["pos_share"], base["ev_pct"], a["z"], verdict,
-                                 f"anomalia {a['metric']}={a['value']:.3f} vs base {a['baseline']:.3f}")
+                                 ev["pos_share"], base["ev_pct"], a["z"], verdict, detail)
         rows.append(row)
     rows.sort(key=lambda r: -(r["ev_pct"] or -999))
     return {"baseline": base, "rows": rows, "n_launches": len(summaries)}
@@ -87,5 +99,8 @@ def format_factory(f: dict) -> str:
         flag = "🟢 CANDIDATE" if r["verdict"] == "CANDIDATE" else "⚫ DEAD"
         reg = " (gia' nel registro)" if r["already"] else ""
         L.append(f"  {flag}  {r['rule_key']:<42} n={r['n']:<5} EV={r['ev_pct']}%  mediana={r['med_pct']}%  pos={r['pos_share']}  z={r['z']}{reg}")
+        if r["verdict"] == "CANDIDATE" and r.get("ev60_pct") is not None:
+            holds = "REGGE" if r["ev60_pct"] > 0 else "CROLLA senza look-ahead"
+            L.append(f"      ↳ anti-leakage (ingresso +60s): EV={r['ev60_pct']}%  mediana={r['med60_pct']}%  pos={r['pos60']}  n={r['n60']}  → {holds}")
     L.append("  ! CANDIDATE = merita un detector ombra e conferma su dati nuovi. Mai operativa direttamente.")
     return "\n".join(L)
