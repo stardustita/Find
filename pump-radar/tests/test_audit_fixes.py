@@ -132,3 +132,8 @@ def test_dashboard_falls_back_to_free_port(tmp_path):
     finally:
         if server: server.shutdown()
         blocker.close()
+
+def test_dashboard_tokens_link_to_pumpfun():
+    from pumpradar.api.server import HTML
+    assert "https://pump.fun/coin/" in HTML and 'target="_blank"' in HTML
+    assert HTML.count("lnk(r.mint") == 2 and "lnk(r.base_mint" in HTML  # segnali curva + posizioni + PG
