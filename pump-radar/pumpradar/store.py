@@ -266,15 +266,18 @@ class Store:
         mcaps = [float(b["mcap_sol"]) for b in bars]
         first, peak = mcaps[0], max(mcaps)
         t_peak = float(bars[mcaps.index(peak)]["bucket"]) - created
-        agg = self.q("""SELECT COUNT(*) n, COALESCE(SUM(CASE WHEN is_buy=1 THEN sol END),0) b,
-                        COALESCE(SUM(CASE WHEN is_buy=0 THEN sol END),0) s,
+        # Importi: denominati in SOL solo fuori dalla corsia cross (li' 'sol'
+        # e' la valuta di quotazione, non SOL). Conteggi: sempre validi.
+        agg = self.q("""SELECT COUNT(*) n,
+                        COALESCE(SUM(CASE WHEN is_buy=1 AND COALESCE(lane,'sol')<>'cross' THEN sol END),0) b,
+                        COALESCE(SUM(CASE WHEN is_buy=0 AND COALESCE(lane,'sol')<>'cross' THEN sol END),0) s,
                         COUNT(DISTINCT CASE WHEN is_buy=1 THEN trader END) ub,
                         COUNT(DISTINCT CASE WHEN is_buy=0 THEN trader END) us
                         FROM trades WHERE mint=?""", (mint,))[0]
-        top = self.q("SELECT COALESCE(SUM(sol),0) t FROM trades WHERE mint=? AND is_buy=1 GROUP BY trader ORDER BY t DESC LIMIT 1", (mint,))
-        dev = self.q("SELECT COALESCE(SUM(sol),0) t FROM trades WHERE mint=? AND is_buy=1 AND trader=? AND ts<=?",
+        top = self.q("SELECT COALESCE(SUM(sol),0) t FROM trades WHERE mint=? AND is_buy=1 AND COALESCE(lane,'sol')<>'cross' GROUP BY trader ORDER BY t DESC LIMIT 1", (mint,))
+        dev = self.q("SELECT COALESCE(SUM(sol),0) t FROM trades WHERE mint=? AND is_buy=1 AND trader=? AND ts<=? AND COALESCE(lane,'sol')<>'cross'",
                      (mint, t["creator"], created + 60)) if t["creator"] else []
-        sn5 = self.q("SELECT COALESCE(SUM(sol),0) t FROM trades WHERE mint=? AND is_buy=1 AND ts<=?", (mint, created + 5))
+        sn5 = self.q("SELECT COALESCE(SUM(sol),0) t FROM trades WHERE mint=? AND is_buy=1 AND ts<=? AND COALESCE(lane,'sol')<>'cross'", (mint, created + 5))
         buy = float(agg["b"] or 0)
         prior = self.q("SELECT COUNT(*) c FROM tokens WHERE creator=? AND created_at<? AND mint<>?",
                        (t["creator"], created, mint))[0]["c"] if t["creator"] else 0
@@ -294,6 +297,11 @@ class Store:
         return True
 
     def backfill_launch_facts(self, older_than_s: int = 1800, limit: int = 5000) -> int:
+        # Auto-riparazione (bug volumi cross 2026-11-07): le schede cross
+        # scritte prima della correzione hanno importi-quote travestiti da
+        # SOL (buy_sol>0). Si cancellano e il ricalcolo sotto le riscrive
+        # corrette (0 SOL, conteggi intatti). A regime e' un no-op.
+        self.execute("DELETE FROM launch_facts WHERE lane='cross' AND (COALESCE(buy_sol,0)>0 OR COALESCE(sell_sol,0)>0)")
         rows = self.q("""SELECT t.mint FROM tokens t LEFT JOIN launch_facts f ON f.mint=t.mint
                          WHERE f.mint IS NULL AND t.created_at<? ORDER BY t.created_at LIMIT ?""",
                       (time.time() - older_than_s, limit))
