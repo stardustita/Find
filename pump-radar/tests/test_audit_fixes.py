@@ -87,7 +87,7 @@ def test_backtest_is_signal_relative(tmp_path, monkeypatch, capsys):
                         "quote_mint": "SOL", "lane": "sol"})
     store.add_trade({"mint": mint, "ts": t0 + 50, "trader": "w", "is_buy": True, "sol": 1, "tokens": 1,
                      "mcap_sol": 500.0, "lane": "sol"})                      # picco pre-segnale: ignorato
-    sid = store.add_signal({"mint": mint, "ts": t0 + 100, "tier": "ENTRY", "score": 0.5, "price_sol": 1,
+    store.add_signal({"mint": mint, "ts": t0 + 100, "tier": "ENTRY", "score": 0.5, "price_sol": 1,
                             "mcap_sol": 100.0, "age_s": 100, "sol_price": 150, "gates": {}, "plan": {}, "features": {}})
     store.add_trade({"mint": mint, "ts": t0 + 300, "trader": "w", "is_buy": True, "sol": 1, "tokens": 1,
                      "mcap_sol": 190.0, "lane": "sol"})                      # +90% dopo il segnale
@@ -137,3 +137,26 @@ def test_dashboard_tokens_link_to_pumpfun():
     from pumpradar.api.server import HTML
     assert "https://pump.fun/coin/" in HTML and 'target="_blank"' in HTML
     assert HTML.count("lnk(r.mint") == 2 and "lnk(r.base_mint" in HTML  # segnali curva + posizioni + PG
+
+def test_two_dashboards_cannot_share_port(tmp_path):
+    from pumpradar.api.server import build_server
+    from pumpradar.orchestrator import Orchestrator
+    orch = Orchestrator(cfg(tmp_path))
+    s1 = build_server(orch, "127.0.0.1", 0); port = s1.server_address[1]
+    try:
+        import pytest as _pt
+        with _pt.raises(OSError):
+            build_server(orch, "127.0.0.1", port)
+    finally:
+        s1.server_close()
+
+def test_instance_lock_blocks_second(tmp_path):
+    from pumpradar.cli import _acquire_instance_lock, _release_instance_lock
+    lock_path = tmp_path / "inst.lock"
+    first = _acquire_instance_lock(lock_path)
+    assert first is not None
+    assert _acquire_instance_lock(lock_path) is None   # stessa macchina, secondo avvio bloccato
+    _release_instance_lock(first)
+    second = _acquire_instance_lock(lock_path)
+    assert second is not None
+    _release_instance_lock(second)

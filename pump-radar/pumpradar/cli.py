@@ -1,10 +1,40 @@
 from __future__ import annotations
 import argparse, asyncio, json, logging, random
+from pathlib import Path
 from .logging_setup import setup_logging
 from .settings import Settings
 log=logging.getLogger("cli")
 
 def _settings(): return Settings.load()
+
+def _pid_alive(pid):
+    try:
+        import os
+        os.kill(pid, 0); return True
+    except PermissionError:
+        return True
+    except Exception:
+        return False
+
+def _acquire_instance_lock(path=None):
+    """Lock anti-doppia-istanza (anche da cartelle diverse): un solo motore live per macchina."""
+    import os, tempfile
+    path=path or (Path(tempfile.gettempdir())/"pumpradar-instance.lock")
+    for _ in range(2):
+        try:
+            fd=os.open(str(path), os.O_CREAT|os.O_EXCL|os.O_WRONLY); os.write(fd, str(os.getpid()).encode()); os.close(fd); return path
+        except FileExistsError:
+            try: pid=int(Path(path).read_text().strip() or 0)
+            except Exception: pid=0
+            if pid and _pid_alive(pid): return None
+            try: Path(path).unlink()   # lock residuo di un processo morto
+            except Exception: return None
+    return None
+
+def _release_instance_lock(path):
+    try:
+        if path: Path(path).unlink()
+    except Exception: pass
 
 def _start_dashboard(orch, s, label="live"):
     """Avvia la dashboard sulla prima porta libera a partire da s.api_port:
@@ -23,6 +53,13 @@ def _start_dashboard(orch, s, label="live"):
     return None, None
 
 async def _run_live(args):
+    lock=_acquire_instance_lock()
+    if lock is None:
+        print("\n  ✖ Un'altra istanza di PumpRadar e' gia' in esecuzione su questa macchina (probabilmente avviata da un'altra cartella).\n    Chiudila con Ctrl+C nella sua console, oppure usa quella gia' aperta: una sola istanza = un solo database coerente.\n", flush=True); return
+    try: await _run_live_locked(args)
+    finally: _release_instance_lock(lock)
+
+async def _run_live_locked(args):
     from .orchestrator import Orchestrator
     s=_settings(); orch=Orchestrator(s); server=None
     if not args.no_dashboard:
@@ -60,6 +97,13 @@ async def _run_sim(args):
     _print_report(orch.store)
 
 async def _capture(args):
+    lock=_acquire_instance_lock()
+    if lock is None:
+        print("\n  ✖ Un'altra istanza di PumpRadar e' gia' in esecuzione: capture rimandata.\n", flush=True); return
+    try: await _capture_locked(args)
+    finally: _release_instance_lock(lock)
+
+async def _capture_locked(args):
     from .orchestrator import Orchestrator
     s=_settings(); orch=Orchestrator(s); print(f"  ▸ CAPTURE {args.minutes} minuti → {s.db_path}", flush=True)
     task=asyncio.create_task(orch.run())

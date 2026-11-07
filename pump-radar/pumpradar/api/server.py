@@ -19,6 +19,10 @@ async function health(){try{const h=await(await fetch('/api/health')).json();$('
 async function tables(){try{const s=await(await fetch('/api/signals?limit=16')).json();document.querySelector('#sig tbody').innerHTML=s.map(r=>rowh([new Date(r.ts*1000).toLocaleTimeString('it-IT'),r.tier,lnk(r.mint,'$'+(r.symbol||(r.mint||'').slice(0,6))),(+r.score).toFixed(2),(+r.mcap_sol||0).toFixed(1)+'S',Math.round(r.age_s||0)+'s',r.buyers||0],r.tier,[2])).join('');const g=await(await fetch('/api/pg-signals?limit=16')).json();document.querySelector('#pg tbody').innerHTML=g.map(r=>rowh([new Date(r.ts*1000).toLocaleTimeString('it-IT'),r.tier,lnk(r.base_mint,(r.base_mint||'').slice(0,8)),(+r.score).toFixed(2),(+r.mcap_sol||0).toFixed(0)+'S',(+r.liq_sol||0).toFixed(1)+'S',Math.round(r.age_s||0)+'s'],r.tier,[2])).join('');const p=await(await fetch('/api/positions?limit=16')).json();document.querySelector('#pos tbody').innerHTML=p.map(r=>rowh([r.kind,lnk(r.mint,'$'+(r.symbol||(r.mint||'').slice(0,6))),((+r.mult)||0).toFixed(2)+'x',((+r.pnl_sol)||0).toFixed(4),r.status,r.reason||''],((+r.pnl_sol)||0)>0?'pos':(((+r.pnl_sol)||0)<0?'neg':''),[1])).join('')}catch(e){}}
 const es=new EventSource('/events');es.onmessage=e=>{const d=JSON.parse(e.data);const el=document.createElement('div');el.textContent=new Date().toLocaleTimeString('it-IT')+' · feed '+((d.trades_per_s||0))+' trade/s · pool '+(d.pools_tracked||0)+' · segnali curva '+(d.stats?.signal_entry||0)+' · PG '+(d.stats?.pg_signal_setup||0);const f=$('feed');f.prepend(el);while(f.children.length>120)f.lastChild.remove()};health();tables();setInterval(health,2000);setInterval(tables,3000);</script></body></html>"""
 
+class _Server(ThreadingHTTPServer):
+    allow_reuse_address=False   # su Windows SO_REUSEADDR lascia legare 2 processi alla stessa porta
+    daemon_threads=True
+
 def build_server(orch, host="0.0.0.0", port=8787):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args): pass
@@ -66,7 +70,7 @@ def build_server(orch, host="0.0.0.0", port=8787):
                     except Exception: return
                 return self._json({"error":"not found"},404)
             except Exception as e: return self._json({"error":str(e)},500)
-    return ThreadingHTTPServer((host,port), Handler)
+    return _Server((host,port), Handler)
 
 # compatibilità col nome usato in versioni precedenti
 def build_app(orch): return build_server(orch, orch.s.api_host, orch.s.api_port)
