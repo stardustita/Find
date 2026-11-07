@@ -46,6 +46,8 @@ Su Linux/macOS puoi usare `./run.sh`; su Windows `run.bat`.
 | `python -m pumpradar knn <mint>` | Fase 4: gemelli storici del percorso e distribuzione esiti |
 | `python -m pumpradar autopsy` | Fase 4: report automatico (reports/, `--send` per Telegram) |
 | `python -m pumpradar guardian` | Fase 5: veti attivi, blacklist creator, tier retrocessi (docs/GUARDIANI.md) |
+| `python -m pumpradar verify` | Banco offline senza look-ahead per SLANCIO: ingresso barra successiva, stress latenza, split 60/40 (docs/VERIFICA.md) |
+| `python -m pumpradar dayreport` | Report completo ultime 24h: picchi, vite, volumi, forme, creator, wallet |
 
 **Motore GEMME** (docs/RICOSTRUZIONE.md): alert 🚀 SLANCIO in tempo reale durante la formazione dell'esplosione del primo minuto (18–90s, +25% dal minimo, compratori in espansione), paper e censurati dai Guardiani; giudicati da `analyze` e retrocessi in automatico dal Revisore se l'EV degli ultimi 100 segnali risolti è negativo.
 | `python -m pumpradar autopsy` | Fase 4: report automatico (reports/, `--send` per Telegram) |
