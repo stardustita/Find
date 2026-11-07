@@ -16,6 +16,15 @@ nuova conclusione strategica. Da questa fase la cattura è profonda di default
 | Regime orario | `regime_log` | Il meteo diventa serie storica interrogabile |
 | Segnali, ombre, posizioni, esiti | `signals`, `shadow_signals`, `positions`, `outcomes` | Invariati: il livello di giudizio |
 
+## Semantica delle corsie (volumi)
+
+Le barre e i trade registrano la **corsia** del lancio. Gli importi sono
+denominati in SOL per `sol`/`alt`/`shallow`; per **`cross`** sono nella
+**valuta di quotazione** (es. $PUMP) e NON vanno mai sommati ai SOL (bug
+2026-11-07: +801M "SOL" fantasma nei totali del report). Riassunti, report
+24h e schede `launch_facts` tengono le due cose separate (`buy60` vs
+`buy60q`); le schede cross pre-correzione si auto-riparano al primo avvio.
+
 ## Dimensioni attese e manutenzione
 
 Ai ritmi osservati (migliaia di lanci/giorno): ~0,5–2 milioni di trade/settimana,

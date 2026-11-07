@@ -51,7 +51,9 @@ def dayreport(store, hours=24.0, now=None) -> dict:
                    "dead60": round(sum(1 for x in life if x < 60) / len(life), 3),
                    "dead300": round(sum(1 for x in life if x < 300) / len(life), 3),
                    "surv900": round(sum(1 for x in life if x >= 900) / len(life), 3)}
-    out["vol"] = {"total_buy_sol": round(sum(r["buy60"] for r in rows), 1),
+    out["vol"] = {"cross_tokens": sum(1 for r in rows if r["lane"] == "cross"),
+                  "total_buy_quote": round(sum(r["buy60q"] for r in rows), 1),
+                  "total_buy_sol": round(sum(r["buy60"] for r in rows), 1),
                   "med_buy60": round(statistics.median(r["buy60"] for r in rows), 2),
                   "p90_buy60": round(_pct([r["buy60"] for r in rows], .9), 1)}
     ttp = []
@@ -110,6 +112,8 @@ def format_dayreport(d: dict) -> str:
     L.append(f"  VITA: mediana {lf['med']}s · morti <60s {lf['dead60']:.0%} · <5min {lf['dead300']:.0%} · vivi a 15min {lf['surv900']:.0%}")
     L.append(f"  TEMPO AL PICCO: mediano {d['time_to_peak']['med']}s · entro 60s: {d['time_to_peak']['within60']:.0%} dei casi")
     L.append(f"  VOLUMI primo minuto: totale comprato {d['vol']['total_buy_sol']} SOL · mediano/lancio {d['vol']['med_buy60']} · p90 {d['vol']['p90_buy60']}")
+    if d["vol"]["cross_tokens"]:
+        L.append(f"  VOLUMI cross: {d['vol']['cross_tokens']} token · {d['vol']['total_buy_quote']} unita' di quotazione (NON SOL: esclusi dai totali SOL)")
     L.append(f"  FORME primi 60s: {dict(d['shapes'])}")
     L.append("--- top 10 per picco ---")
     for t in d["top_peak"]:
@@ -126,6 +130,6 @@ def format_dayreport(d: dict) -> str:
              f"nuovi {w['new_wallets']} · su >=5 token: {w['sprayers']}")
     L.append("  piu' attivi: " + ", ".join(f"{a[:8]}…({n} trade/{t} token)" for a, n, t in w["top_active"]))
     L.append("  compratori precoci (primi 60s) piu' frequenti: " + ", ".join(f"{a[:8]}…({n})" for a, n in w["top_early"]))
-    L.append("  ! Prezzi/volumi: barre 5s di ogni lancio; trade/wallet: dettaglio completo dei primi 30 min (cattura profonda).")
+    L.append("  ! Volumi SOL: solo corsie denominate in SOL; corsia cross a parte (unita' di quotazione). Prezzi: barre 5s; trade/wallet: primi 30 min di ogni lancio.")
     L.append("  ! 'Visualizzatori'/engagement del sito pump.fun: NON disponibili on-chain ne' via feed gratuiti.")
     return "\n".join(L)

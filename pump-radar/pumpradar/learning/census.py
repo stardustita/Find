@@ -18,7 +18,7 @@ from collections import defaultdict
 def launch_summaries(store) -> list[dict]:
     """Un riassunto per lancio: percorso a barre, esiti, contesto."""
     bars = defaultdict(list)
-    for r in store.q("SELECT mint,bucket,n_trades,buy_sol,sell_sol,n_buyers,mcap_sol FROM launch_bars ORDER BY mint,bucket"):
+    for r in store.q("SELECT mint,bucket,lane,n_trades,buy_sol,sell_sol,n_buyers,mcap_sol FROM launch_bars ORDER BY mint,bucket"):
         bars[r["mint"]].append(r)
     toks = {r["mint"]: dict(r) for r in store.q("SELECT mint,creator,created_at,lane,bonded_at FROM tokens")}
     # lanci precedenti per creator (esperienza al momento del lancio)
@@ -48,8 +48,15 @@ def launch_summaries(store) -> list[dict]:
             "lifespan_s": float(bs[-1]["bucket"] - bs[0]["bucket"]),
             "first_mcap": first, "peak_mcap": peak, "last_mcap": mcaps[-1],
             "peak_mult": peak / first, "last_mult": mcaps[-1] / first,
-            "vol60": sum(float(b["buy_sol"] or 0) + float(b["sell_sol"] or 0) for b in b60),
-            "buy60": sum(float(b["buy_sol"] or 0) for b in b60),
+            # Volumi: SOL solo da barre denominate in SOL (sol/alt/shallow).
+            # La corsia cross muove la valuta di quotazione: MAI sommata ai SOL
+            # (bug 2026-11-07: +801M "SOL" fantasma nei totali). Resta separata.
+            "buy60": sum(float(b["buy_sol"] or 0) for b in b60 if (b["lane"] or "sol") != "cross"),
+            "buy60q": sum(float(b["buy_sol"] or 0) for b in b60 if (b["lane"] or "") == "cross"),
+            "vol60": sum(float(b["buy_sol"] or 0) + float(b["sell_sol"] or 0)
+                         for b in b60 if (b["lane"] or "sol") != "cross"),
+            "vol60q": sum(float(b["buy_sol"] or 0) + float(b["sell_sol"] or 0)
+                          for b in b60 if (b["lane"] or "") == "cross"),
             "buyers60": sum(int(b["n_buyers"] or 0) for b in b60),
             "ret60": ret60,
             "creator_prior": pr,
