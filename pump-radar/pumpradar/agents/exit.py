@@ -18,9 +18,13 @@ class ExitAgent:
         entry=float(pos["entry_mcap"] or 0) or 1e-9; cur=float(st.mcap_sol or entry)
         peak=max(float(pos["peak_mcap"] or entry),cur); mult=cur/entry; peak_mult=peak/entry
         age=time.time()-float(pos["opened_ts"] or time.time())
-        if mult <= 1-float(getattr(self.s,"curve_stop_pct",0.42)): return ("CLOSE",f"stop_loss {mult:.2f}x",1.0)
+        if mult <= 1-float(getattr(self.s,"curve_stop_pct",0.35)): return ("CLOSE",f"stop_loss {mult:.2f}x",1.0)
+        if peak_mult>=1.30 and mult<=1.03: return ("CLOSE",f"pareggio dopo picco {peak_mult:.2f}x",1.0)
         if F.get("dev_sold_flag",0)>=1 and mult<1.6: return ("CLOSE","dev ha venduto",1.0)
         if F.get("risk_sell_pressure_30s",0)>3.0 and mult<1.4: return ("CLOSE","pressione di vendita dominante",1.0)
+        idle=time.time()-float(getattr(st,"last_ts",0) or 0)
+        if idle>45 and mult<1.05: return ("CLOSE","token inattivo",1.0)
+        if age>240 and mult<1.05: return ("CLOSE","momentum esaurito 4min",1.0)
         if age>780 and mult<1.2: return ("CLOSE","time_stop 13min",1.0)
         sold=float(self.store.kv_get(f"sold_{pos['id']}",0.0) or 0.0); cum=0.0
         for m,pct in ((1.8,0.25),(3.0,0.25),(6.0,0.25)):

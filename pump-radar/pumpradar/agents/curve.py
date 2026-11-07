@@ -52,6 +52,14 @@ class CurveAgent(Agent):
                       "retail_share":sum(1 for b in buys if b<0.15)/len(buys)})
         else:
             f.update({"avg_buy_sol":0.0,"max_buy_sol":0.0,"top1_buy_share":0.0,"top3_buy_share":0.0,"buy_hhi":0.0,"buy_gini":0.0,"retail_share":0.0})
+        def _ret(sec):
+            w=st.window(sec,now)
+            if not w: return 0.0
+            first=float(w[0].get("mcap_sol") or 0)
+            return safe_div(float(st.mcap_sol or 0)-first, first) if first else 0.0
+        rate10,rate30=b10/10.0,b30/30.0
+        f["mcap_ret_30s"]=_ret(30); f["mcap_ret_60s"]=_ret(60)
+        f["flow_decel"]=max(0.0,safe_div(rate30-rate10,rate30)) if rate30>0 else 0.0
         rep=sum(1 for d in st.buyers.values() if d.get("n",0)>=2)
         f["repeat_buyers"]=rep; f["repeat_buyer_share"]=safe_div(rep,max(1,len(st.buyers)))
         f["early_exit_share"]=safe_div(len([w for w in st.sellers if w in st.buyers]), max(1,len(st.buyers)))

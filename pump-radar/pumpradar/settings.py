@@ -78,7 +78,14 @@ class Settings:
     slippage_bps: int = 1500
     pump_fee_bps: int = 100
     priority_fee_sol: float = 0.0004
-    curve_stop_pct: float = 0.42
+    curve_stop_pct: float = 0.35
+
+    # Ingresso curva (taratura su dati reali 2026-11: ingressi oltre meta' curva = EV negativo)
+    max_entry_mcap_sol: float = 150.0
+    entry_min_progress: float = 0.03
+    entry_max_progress: float = 0.45
+    entry_max_ret_30s: float = 0.85
+    entry_confirm_ticks: int = 2
 
     telegram_token: str = ""
     telegram_chat: str = ""

@@ -74,9 +74,9 @@ class ScorerAgent(Agent):
          "age":float(F.get("age_s",0) or 0)<=s.prefilter_max_age_s,
          "not_engineered":float(F.get("risk_engineered",0) or 0)<0.5,
          "curve_window":0.01<=float(F.get("curve_progress",0) or 0)<=0.72,
-         "min_buyers":float(F.get("unique_buyers_life",0) or 0)>=6,
-         "not_bundle":float(F.get("burst_300ms_share",0) or 0)<0.65 and float(F.get("single_token_wallet_share",0) or 0)<0.85,
-         "not_selloff":float(F.get("risk_sell_pressure_30s",0) or 0)<2.5,
+         "min_buyers":float(F.get("unique_buyers_life",0) or 0)>=8,
+         "not_bundle":float(F.get("burst_300ms_share",0) or 0)<0.50 and float(F.get("single_token_wallet_share",0) or 0)<0.75,
+         "not_selloff":float(F.get("risk_sell_pressure_30s",0) or 0)<1.8,
          "dev_holding":float(F.get("dev_hold_pct",0) or 0)<0.20,
          "not_clone":float(F.get("risk_clone_image",0) or 0)<0.5,
          "liquidity_floor":float(F.get("buy_sol_30s",0) or 0)>=0.4,
@@ -88,15 +88,29 @@ class ScorerAgent(Agent):
                 "ladder":[{"mult":1.8,"sell_pct":0.25},{"mult":3.0,"sell_pct":0.25},{"mult":6.0,"sell_pct":0.25}],
                 "trail":{"from_peak_drop_pct":0.35,"applies_to_pct":0.25},"stop_loss_pct":self.s.curve_stop_pct,
                 "time_stop_s":780,"exit_on":["dev_sell","sell_pressure>3x","no_new_buyers_120s"]}
+    def entry_gates(self,F):
+        """Gate SOLO per l'ingresso operativo (ENTRY/STRONG). I dati reali mostrano
+        che inseguire spike verticali e ingressi a curva avanzata ha EV negativo:
+        chi fallisce questi gate resta WATCH (osservazione), mai posizione."""
+        s=self.s; progress=float(F.get("curve_progress",0) or 0)
+        return {
+         "entry_window":float(getattr(s,"entry_min_progress",0.03))<=progress<=float(getattr(s,"entry_max_progress",0.45)),
+         "entry_mcap_cap":float(F.get("mcap_sol",0) or 0)<=float(getattr(s,"max_entry_mcap_sol",150.0)),
+         "not_chasing":float(F.get("mcap_ret_30s",0) or 0)<=float(getattr(s,"entry_max_ret_30s",0.85)),
+         "flow_not_exhausted":not (float(F.get("flow_decel",0) or 0)>0.55 and float(F.get("risk_sell_pressure_30s",0) or 0)>1.2),
+        }
     def decide(self, st, F, sol_price=0.0):
         c=self.transform(F); score=self.model_score(c) if self.model is not None else self.prior_score(c)
-        g=self.gates(F,c); passed=all(g.values()); tier="NONE"
-        if passed:
+        g=self.gates(F,c); eg=self.entry_gates(F); passed=all(g.values()); entry_ok=all(eg.values()); tier="NONE"
+        if passed and entry_ok:
             if score>=self.s.min_strong_score: tier="STRONG"
             elif score>=self.s.min_alert_score: tier="ENTRY"
             elif score>=self.s.watch_score: tier="WATCH"
+        elif passed and score>=self.s.watch_score:
+            tier="WATCH"  # qualita' ok ma ingresso vietato (tardi/spike/flusso esaurito)
         elif score>=self.s.min_strong_score and F.get("risk_engineered",0)<0.5 and F.get("risk_clone_image",0)<0.5:
-            tier="WATCH"  # osservazione, mai operatività con gate rossi
+            tier="WATCH"  # osservazione, mai operativita' con gate rossi
+        g={**g, **eg}
         progress=float(F.get("curve_progress",0) or 0)
         return {"score":round(float(score),4),"tier":tier,"gates":g,"gates_passed":passed,
                 "source":"model" if self.model is not None else "prior","features":F,

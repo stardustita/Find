@@ -197,6 +197,8 @@ class Orchestrator:
             if now-(st.last_ts or st.created_at)>1800 and st.pool not in self.open_runner_pools:
                 self.pools.pop(st.pool,None); continue
             F=self.pg_agent.features(st); feats[st.pool]=F; d=self.runner.decide(F); st.last_score=d["score"]; self.stats["pg_scored"]+=1
+            if PG_RANK[d["tier"]]>=PG_RANK["SETUP"]: st.confirm_count+=1
+            else: st.confirm_count=0
             tok=self.states.get(st.base_mint)  # la posizione curva continua a vivere sul prezzo AMM dopo la graduation
             if tok is not None and st.mcap_sol:
                 tok.mcap_sol=st.mcap_sol; tok.peak_mcap=max(tok.peak_mcap or 0.0, st.mcap_sol)
@@ -206,15 +208,17 @@ class Orchestrator:
             tier=d["tier"]
             if PG_RANK[tier]>PG_RANK.get(st.last_tier,0) and tier!="NONE" and now-self._pg_last_signal.get(st.pool,0)>60:
                 self._pg_last_signal[st.pool]=now; st.last_tier=tier; st.track=True; await self._pg_emit(st,d,F)
+            if PG_RANK[tier]>=PG_RANK["SETUP"] and st.confirm_count>=int(getattr(self.s,"entry_confirm_ticks",2)) and st.last_signal_id and not st.opened_episode:
+                if self.rbook.open_count()<self.s.runner_max_open and self.exit.realized_today()>-float(getattr(self.s,"max_daily_loss_sol",1.0)):
+                    if not self.store.one("SELECT id FROM positions WHERE pool=? AND status='open'", (st.pool,)):
+                        self.rbook.open_position(st,st.last_signal_id,st.mcap_sol,st.liq_sol); self.open_runner_pools.add(st.pool); st.opened_episode=True
+            if PG_RANK[tier]<PG_RANK["SETUP"]: st.opened_episode=False
         for res in self.rbook.tick(self.pools,feats):
             self.stats["pg_exits"]+=1; self.bus.publish("exit",res)
             log.info("%s RUNNER %s %s %.2fx pnl=%+.4f SOL — %s", "🟢" if res["pnl_sol"]>0 else "🔴", res["action"], res["mint"][:8], res["mult"], res["pnl_sol"], res["reason"])
     async def _pg_emit(self, st, d, F):
-        sid=self.store.add_pg_signal({"pool":st.pool,"base_mint":st.base_mint,"ts":time.time(),"tier":d["tier"],"score":d["score"],"price":st.price,"mcap_sol":st.mcap_sol,"liq_sol":st.liq_sol,"age_s":F.get("pg_age_s",0),"gates":d["gates"],"plan":d["plan"],"features":F})
+        sid=self.store.add_pg_signal({"pool":st.pool,"base_mint":st.base_mint,"ts":time.time(),"tier":d["tier"],"score":d["score"],"price":st.price,"mcap_sol":st.mcap_sol,"liq_sol":st.liq_sol,"age_s":F.get("pg_age_s",0),"gates":d["gates"],"plan":d["plan"],"features":F}); st.last_signal_id=sid
         self.stats[f"pg_signal_{d['tier'].lower()}"]+=1; self.bus.publish("pg_signal",{"pool":st.pool,"base_mint":st.base_mint,"tier":d["tier"],"score":d["score"],"mcap_sol":st.mcap_sol,"liq_sol":st.liq_sol})
-        if d["tier"] in ("SETUP","RUN") and self.rbook.open_count()<self.s.runner_max_open:
-            if not self.store.one("SELECT id FROM positions WHERE pool=? AND status='open'", (st.pool,)):
-                self.rbook.open_position(st,sid,st.mcap_sol,st.liq_sol); self.open_runner_pools.add(st.pool)
         log.info("🏃 PG %s %s score=%.3f mcap=%.0f SOL liq=%.1f age=%.0fs", d["tier"], st.base_mint[:8], d["score"], st.mcap_sol, st.liq_sol, F.get("pg_age_s",0))
 
     # ---------------- tick ----------------
@@ -249,6 +253,12 @@ class Orchestrator:
                 st._last_snap=now; self.store.add_snapshot(mint,now,age,F.get("mcap_sol",0),F,d["score"],d.get("p_bond"),d.get("p_2x"),d.get("p_5x"))
             tier=d["tier"]
             if tier in ("ENTRY","STRONG"):
+                st.meta["entry_confirm"]=int(st.meta.get("entry_confirm",0))+1
+                if st.meta["entry_confirm"]<int(getattr(self.s,"entry_confirm_ticks",2)):
+                    tier="WATCH"; d={**d,"tier":"WATCH","plan":{}}   # spike di un solo tick: solo osservazione
+            else:
+                st.meta["entry_confirm"]=0
+            if tier in ("ENTRY","STRONG"):
                 self._entry_times=[t for t in self._entry_times if now-t<3600]
                 if len(self._entry_times)>=self.s.max_entry_per_hour: tier="WATCH"; d={**d,"tier":"WATCH","plan":{}}
             if TIER_RANK[tier]>TIER_RANK.get(st.last_tier,0) and tier!="NONE" and now-self._last_signal.get(mint,0)>45:
@@ -274,8 +284,11 @@ class Orchestrator:
         sig={"mint":st.mint,"ts":time.time(),"tier":d["tier"],"score":d["score"],"price_sol":F.get("price_sol"),"mcap_sol":F.get("mcap_sol"),"age_s":F.get("age_s"),"sol_price":self.enr.sol_price,"gates":d["gates"],"plan":d["plan"],"features":F}
         sid=self.store.add_signal(sig); st.signals.append({"ts":sig["ts"],"tier":sig["tier"],"score":sig["score"],"id":sid}); self.stats[f"signal_{d['tier'].lower()}"]+=1
         self.bus.publish("signal",{**sig,"id":sid,"name":st.name,"symbol":st.symbol})
-        if d["tier"] in ("ENTRY","STRONG") and self.exit.open_count()<self.s.max_open_positions:
-            if not self.store.one("SELECT id FROM positions WHERE mint=? AND status='open' AND kind='curve'", (st.mint,)):
+        can_open = d["tier"]=="STRONG" or self.scorer.model is not None  # prior non calibrato: operativita' ridotta
+        if d["tier"] in ("ENTRY","STRONG") and can_open and self.exit.open_count()<self.s.max_open_positions:
+            if self.exit.realized_today()<=-float(getattr(self.s,"max_daily_loss_sol",1.0)):
+                self.stats["open_skipped_daily_loss"]+=1
+            elif not self.store.one("SELECT id FROM positions WHERE mint=? AND status='open' AND kind='curve'", (st.mint,)):
                 self.exit.open_position(st.mint,sid,F.get("mcap_sol",0),F.get("price_sol",0)); self.open_pos_mints.add(st.mint)
         await self.notifier.alert(st,d,F,self.enr.sol_price,sig)
     def _flush_token_stats(self, st):
