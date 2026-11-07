@@ -18,6 +18,7 @@ from .ingest.pumpevent import WSOL_MINT, amm_price, is_sol_quote
 from .ingest.stream import PumpPortalStream, parse_trade
 from .notify import Notifier
 from .runner import GradState, PostGradAgent, RunnerBook, RunnerScorer
+from .guardian import censor_check
 from .shadow import esplosivo60_signal, pg_pullback_signal, second_leg_signal
 from .state import TokenState
 from .store import Store
@@ -40,6 +41,7 @@ class Orchestrator:
         self.states={}; self.pools={}; self.trial_until={}; self.open_pos_mints=set(); self.open_runner_pools=set()
         self._trade_buf=[]; self._amm_buf=[]; self._orphans={}; self._seen_creates=set(); self._last_signal={}
         self._bars={}; self._shadow_last={}
+        self._blacklist=set(); self._regime_label="unknown"; self._demoted=set(); self._tier_health={}; self._guardian_ts=0.0; self._knn=({},[],[])
         self._entry_times=[]; self._signal_times=[]; self._pg_last_signal={}; self._quote_mints_seen=set(); self._tick_count=0
         self.started_at=time.time(); self.stats=defaultdict(int); self._top_pg_score=0.0
 
@@ -139,6 +141,36 @@ class Orchestrator:
         if len(self._orphans)>50000:
             cutoff=now-300
             for m in [m for m,r in self._orphans.items() if r[2]<cutoff][:10000]: self._orphans.pop(m,None)
+    def _refresh_guardian_sync(self, now):
+        """Guardiani (Fase 5): blacklist Sentinella, regime, retrocessioni Revisore,
+        indice Oracolo. Ricalcolati al massimo ogni 15 min, in thread separato."""
+        if now-self._guardian_ts<900: return
+        self._guardian_ts=now
+        try:
+            from .guardian import serial_ruggers, tier_health
+            from .learning.census import launch_summaries
+            from .learning.knn import _index as knn_index
+            from .learning.regime import current_regime
+            summaries=launch_summaries(self.store)
+            self._blacklist=serial_ruggers(summaries)
+            self._regime_label=str(current_regime(self.store).get("regime","unknown"))
+            self._tier_health=tier_health(self.store)
+            self._demoted={k for k,v in self._tier_health.items() if v["demote"]}
+            self._knn=knn_index(summaries)
+            log.info("🛡️ Guardiani: blacklist=%d creator · regime=%s · tier retrocessi=%s",
+                     len(self._blacklist), self._regime_label, sorted(self._demoted) or "nessuno")
+        except Exception as e: log.debug("guardian refresh: %s", e)
+    def _twins_veto(self, base_mint):
+        """Oracolo-Veto: i gemelli storici del lancio sconsigliano il pool."""
+        try:
+            from .learning.knn import twins_from_index
+            fps, means, stds = self._knn
+            if base_mint not in fps: return None
+            t = twins_from_index(fps, means, stds, base_mint, 25)
+            if "error" not in t and t["med_peak"] < 1.05 and t["p2x"] < 0.08:
+                return "gemelli_negativi"
+        except Exception: pass
+        return None
     def _update_bar(self, st, tr):
         """Aggregato 5s per ogni lancio (primi 30 min di vita), anche se scartato:
         e' il dataset senza survivorship bias della Fase 1."""
@@ -241,6 +273,16 @@ class Orchestrator:
             for k,v in d["gates"].items():
                 if not v: self.stats[f"pg_gate_ko_{k}"]+=1
             tier=d["tier"]
+            if PG_RANK[tier]>=PG_RANK["SETUP"]:
+                veto=[]
+                if st.creator and st.creator in self._blacklist: veto.append("creator_serial_rugger")
+                if f"pg:{tier}" in self._demoted: veto.append("tier_retrocesso_revisore")
+                tw=self._twins_veto(st.base_mint)
+                if tw: veto.append(tw)
+                if veto:
+                    self.stats["pg_censored"]+=1
+                    log.info("🛡️ CENSORE PG %s %s → osservazione: %s", tier, st.base_mint[:8], ",".join(veto))
+                    d={**d,"tier":"WATCH","gates":{**d.get("gates",{}),"censore":veto}}; tier="WATCH"
             if PG_RANK[tier]>PG_RANK.get(st.last_tier,0) and tier!="NONE" and now-self._pg_last_signal.get(st.pool,0)>60:
                 self._pg_last_signal[st.pool]=now; st.last_tier=tier; st.track=True; await self._pg_emit(st,d,F)
             if PG_RANK[tier]>=PG_RANK["SETUP"] and st.confirm_count>=int(getattr(self.s,"entry_confirm_ticks",2)) and st.last_signal_id and not st.opened_episode:
@@ -262,6 +304,7 @@ class Orchestrator:
             await asyncio.sleep(self.s.tick_seconds); await self._tick()
     async def _tick(self):
         self._tick_count+=1; now=time.time(); self.agents["context"].tick()
+        await asyncio.to_thread(self._refresh_guardian_sync, now)
         if self._tick_count%15==0:
             self.open_pos_mints={r["mint"] for r in self.store.q("SELECT mint FROM positions WHERE status='open' AND kind='curve'")}
         feats={}; alive=0
@@ -307,6 +350,13 @@ class Orchestrator:
             if tier in ("ENTRY","STRONG"):
                 self._entry_times=[t for t in self._entry_times if now-t<3600]
                 if len(self._entry_times)>=self.s.max_entry_per_hour: tier="WATCH"; d={**d,"tier":"WATCH","plan":{}}
+            if tier in ("ENTRY","STRONG"):
+                reasons=censor_check(st,F,now,self._blacklist,self._regime_label)
+                if f"curve:{tier}" in self._demoted: reasons.append("tier_retrocesso_revisore")
+                if reasons:
+                    self.stats["censored"]+=1
+                    log.info("🛡️ CENSORE %s %s → osservazione: %s", tier, mint[:8], ",".join(reasons))
+                    d={**d,"tier":"WATCH","plan":{},"gates":{**d.get("gates",{}),"censore":reasons}}; tier="WATCH"
             if TIER_RANK[tier]>TIER_RANK.get(st.last_tier,0) and tier!="NONE" and now-self._last_signal.get(mint,0)>45:
                 self._signal_times=[t for t in self._signal_times if now-t<3600]
                 if len(self._signal_times)>=self.s.max_signals_per_hour:

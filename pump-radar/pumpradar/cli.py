@@ -234,6 +234,14 @@ def _knn(args):
     from .learning.knn import find_twins, format_twins
     print(format_twins(find_twins(_lab_store(), args.mint, args.k)))
 
+def _guardian(args):
+    from .guardian import format_guardian, serial_ruggers, tier_health
+    from .learning.census import launch_summaries
+    from .learning.regime import current_regime
+    store=_lab_store()
+    print(format_guardian(serial_ruggers(launch_summaries(store)),
+                          str(current_regime(store).get("regime", "unknown")), tier_health(store)))
+
 def _autopsy(args):
     import time as _t
     from .learning.autopsy import build_autopsy, send_telegram
@@ -259,6 +267,7 @@ def main(argv=None):
     sub.add_parser("census"); sub.add_parser("regime"); sub.add_parser("factory"); sub.add_parser("actors")
     kn=sub.add_parser("knn"); kn.add_argument("mint"); kn.add_argument("--k",type=int,default=25)
     au=sub.add_parser("autopsy"); au.add_argument("--send",action="store_true")
+    sub.add_parser("guardian")
     sub.add_parser("doctor")
     p=sub.add_parser("prune"); p.add_argument("--snapshot-days",type=int,default=14); p.add_argument("--trade-days",type=int,default=45)
     args=ap.parse_args(argv); setup_logging(args.verbose)
@@ -276,6 +285,7 @@ def main(argv=None):
     elif args.cmd=="actors": _actors(args)
     elif args.cmd=="knn": _knn(args)
     elif args.cmd=="autopsy": _autopsy(args)
+    elif args.cmd=="guardian": _guardian(args)
     elif args.cmd=="backtest": _backtest(args)
     elif args.cmd=="doctor": asyncio.run(_doctor(args))
     elif args.cmd=="prune":

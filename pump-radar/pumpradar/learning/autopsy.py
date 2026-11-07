@@ -70,6 +70,18 @@ def build_autopsy(store) -> str:
             L.append(f"- {h['verdict']} · {h['rule_key']} · EV {h['ev_pct']}% (base {h['baseline_ev_pct']}%) · n={h['n']} · {h['detail'] or ''}")
     else:
         L.append("- registro vuoto: eseguire `python -m pumpradar factory`")
+    try:
+        from ..guardian import tier_health
+        th = tier_health(store)
+    except Exception:
+        th = {}
+    L += ["", "## Revisore qualita' — EV ultimi 100 segnali per tier (retrocessione automatica)"]
+    if th:
+        for k, v in sorted(th.items()):
+            L.append(f"- {k}: EV {v['ev_pct']:+.1f}% · mediana {v['med_pct']:+.1f}% · n={v['n']} — "
+                     f"{'⛔ RETROCESSO a osservazione' if v['demote'] else 'attivo'}")
+    else:
+        L.append("- nessun tier con segnali risolti")
     L += ["", "## Tier storici (EV eseguibile, per memoria)"]
     for t, a in sorted(d.get("pg", {}).get("by_tier", {}).items()):
         L.append(f"- PG {t}: n={a.get('n')} EV={a.get('ev_pct')}% mediana={_med(a)}")
