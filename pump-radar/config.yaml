@@ -1,0 +1,15 @@
+# PumpRadar — valori di partenza prudenti. Ogni soglia è misurabile con report/train.
+bankroll_sol: 10.0
+position_sol: 0.10
+runner_size_sol: 0.15
+slippage_bps: 1500
+max_open_positions: 25
+runner_max_open: 10
+max_daily_loss_sol: 1.0
+min_alert_score: 0.44
+min_strong_score: 0.54
+prefilter_max_age_s: 180.0
+runner_min_liq_sol: 8.0
+runner_min_turnover: 0.10
+runner_min_buyers: 12
+api_port: 8787
