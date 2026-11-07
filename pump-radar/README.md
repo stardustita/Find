@@ -45,6 +45,10 @@ Su Linux/macOS puoi usare `./run.sh`; su Windows `run.bat`.
 | `python -m pumpradar actors` | Fase 4: reputazione creator e cartografia wallet |
 | `python -m pumpradar knn <mint>` | Fase 4: gemelli storici del percorso e distribuzione esiti |
 | `python -m pumpradar autopsy` | Fase 4: report automatico (reports/, `--send` per Telegram) |
+| `python -m pumpradar guardian` | Fase 5: veti attivi, blacklist creator, tier retrocessi (docs/GUARDIANI.md) |
+
+**Motore GEMME** (docs/RICOSTRUZIONE.md): alert 🚀 SLANCIO in tempo reale durante la formazione dell'esplosione del primo minuto (18–90s, +25% dal minimo, compratori in espansione), paper e censurati dai Guardiani; giudicati da `analyze` e retrocessi in automatico dal Revisore se l'EV degli ultimi 100 segnali risolti è negativo.
+| `python -m pumpradar autopsy` | Fase 4: report automatico (reports/, `--send` per Telegram) |
 | `python -m pumpradar prune` | manutenzione database |
 
 ## Come funziona
