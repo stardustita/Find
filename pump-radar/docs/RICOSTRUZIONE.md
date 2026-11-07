@@ -63,3 +63,14 @@ Se SLANCIO morirà come le ipotesi precedenti, morirà in settimane, a costo
 zero, con le prove in mano — e il sistema avrà comunque smesso di segnalare
 scam: nel frattempo le uniche emissioni operative possibili sono SLANCIO
 censurato e ciò che il Revisore non ha (ancora) retrocesso.
+
+## Postilla di verifica (correzione)
+
+SLANCIO è stato annunciato come soluzione prima della misura: era
+un'ipotesi. È stato quindi costruito il banco `verify` (docs/VERIFICA.md):
+valutazione offline senza look-ahead con ingresso alla barra successiva,
+stress di latenza e split fuori campione. Finché `verify` sul DB reale non
+restituisce PROMETTENTE, SLANCIO va letto come **esperimento paper con
+kill-switch** (Censore + retrocessione automatica del Revisore), non come
+una risposta definitiva. Se la verifica lo boccia, verrà retrocesso a
+strategia ombra per decisione pre-registrata.
