@@ -77,3 +77,20 @@ def test_regime_and_autopsy(tmp_path):
     assert sol_benchmark(store) == pytest.approx(50.0)
     md = build_autopsy(store)
     assert "Autopsy" in md and "Benchmark" in md and "criteri di promozione" in md
+
+def test_factory_antileakage_and_dedupe(tmp_path):
+    store = Store(str(tmp_path / "f.db")); _seed_universe(store)
+    f = run_factory(store)
+    keys = [r["rule_key"] for r in f["rows"]]
+    assert len(keys) == len(set(keys))                       # niente righe doppie
+    cand = [r for r in f["rows"] if r["verdict"] == "CANDIDATE"]
+    assert cand and all("ev60_pct" in r and "n60" in r for r in cand)
+
+def test_autopsy_cli_writes_utf8(tmp_path, monkeypatch):
+    monkeypatch.setenv("PR_DB_PATH", str(tmp_path / "x.db"))
+    monkeypatch.chdir(tmp_path)
+    from pumpradar.cli import _autopsy
+    class A: send = False
+    _autopsy(A())
+    files = list((tmp_path / "reports").glob("autopsy-*.md"))
+    assert files and "Autopsy" in files[0].read_text(encoding="utf-8")

@@ -10,6 +10,12 @@ Ipotesi, nate dai dati reali (Fase 0/3): l'ingresso sul momentum in curva perde
 2. pg_pullback (post-graduation): pool salito >=1.8x dal prezzo iniziale, ritraccia
    del 25-55% dal picco con liquidita' intatta e compratori di ritorno (+ret 1m).
 
+3. esplosivo60 (curva): prima CANDIDATE della Fabbrica di Ipotesi (censimento
+   reale, 6.351 lanci): +50% nei primi 60s dal minimo di nascita -> p(2x) 70,7%
+   contro 13,7% dell'universo. La valutazione storica entrava a +15s conoscendo
+   la forma a +60s (look-ahead): dal vivo il segnale scatta A +60s e l'ingresso
+   registrato e' il prezzo di quel momento. L'ombra dira' quanto EV sopravvive.
+
 I rilevatori sono funzioni pure su state/feature: l'orchestratore le invoca,
 registra il segnale in shadow_signals e NON apre posizioni.
 """
@@ -64,3 +70,26 @@ def pg_pullback_signal(gs, F: dict, now: float) -> dict | None:
     return {"ath_mult": round(ath, 2), "drawdown": round(dd, 3),
             "liq_sol": round(float(F.get("pg_liq_sol", 0) or 0), 1),
             "buyers_5m": int(F.get("pg_unique_buyers_5m", 0) or 0)}
+
+
+def esplosivo60_signal(st, F: dict, now: float) -> dict | None:
+    if getattr(st, "lane", "") != "sol":
+        return None
+    age = float(F.get("age_s", 0) or 0)
+    mcap = float(F.get("mcap_sol", 0) or 0)
+    if not (55 <= age <= 300 and mcap > 0):
+        return None
+    base = float(getattr(st, "min_mcap", 0) or 0)
+    peak = float(getattr(st, "peak_mcap", 0) or 0)
+    if base <= 0 or peak <= 0:
+        return None
+    if mcap / base - 1 < 0.50:
+        return None                       # non e' esploso dal minimo di nascita
+    if mcap < 0.75 * peak:
+        return None                       # gia' ritracciato: esplosione finita
+    buyers60 = {t.get("trader") for t in st.window(60, now) if t.get("is_buy") and t.get("trader")}
+    if len(buyers60) < 5:
+        return None                       # niente pump di un singolo wallet
+    if float(F.get("risk_engineered", 0) or 0) >= 0.5 or float(F.get("risk_distribution", 0) or 0) >= 0.5:
+        return None
+    return {"ret_from_min": round(mcap / base - 1, 3), "buyers_60s": len(buyers60), "age_s": round(age)}
