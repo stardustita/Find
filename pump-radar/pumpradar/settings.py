@@ -111,6 +111,7 @@ class Settings:
     runner_max_open: int = 10
 
     narrative_enabled: bool = False
+    deep_capture: bool = True   # storico completo: trade di OGNI lancio (primi 30 min), schede, barre pool
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "llama3.2:3b"
     api_host: str = "127.0.0.1"   # override con PR_API_HOST=0.0.0.0 solo se serve accesso LAN

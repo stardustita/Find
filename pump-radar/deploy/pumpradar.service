@@ -1,0 +1,18 @@
+[Unit]
+Description=PumpRadar — raccolta dati pump.fun H24 (paper trading, nessun denaro reale)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__HOME__/Find/pump-radar
+ExecStart=__HOME__/Find/pump-radar/.venv/bin/python -m pumpradar run
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+# Nessuna porta in ingresso necessaria: la dashboard resta su 127.0.0.1
+# (consultabile via tunnel SSH, vedi docs/DEPLOY.md).
+
+[Install]
+WantedBy=multi-user.target
