@@ -35,6 +35,9 @@ class GradState:
     n_bad: int = 0
     state: str = "new"
     track: bool = False
+    confirm_count: int = 0
+    last_signal_id: int = 0
+    opened_episode: bool = False
     last_score: float = 0.0
     last_tier: str = ""
 
@@ -160,6 +163,7 @@ class RunnerBook:
         peak=max(float(pos["peak_mcap"] or entry), self.peak.get(pid, entry), cur); self.peak[pid]=peak
         mult=cur/entry; peak_mult=peak/entry; age=time.time()-float(pos["opened_ts"] or time.time())
         if mult<=1-float(self.s.runner_stop_pct): return ("CLOSE",f"stop {mult:.2f}x",1.0)
+        if peak_mult>=1.60 and mult<=1.03: return ("CLOSE",f"pareggio dopo picco {peak_mult:.2f}x",1.0)
         if F.get("pg_creator_sold"): return ("CLOSE","creator sta vendendo",1.0)
         liq0=float(self.store.kv_get(f"liq_{pid}", st.liq_sol) or st.liq_sol or 0.0)
         if st.liq_sol and liq0 and st.liq_sol<0.4*liq0: return ("CLOSE","liquidità crollata -60%",1.0)

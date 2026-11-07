@@ -134,6 +134,9 @@ def _print_report(store):
         r=s.one("""SELECT COUNT(*) n,SUM(CASE WHEN pnl_sol>0 THEN 1 ELSE 0 END) w,SUM(pnl_sol) pnl,AVG(pnl_pct) avg,MAX(pnl_pct) best,MIN(pnl_pct) worst FROM positions WHERE status='closed' AND kind=?""", (kind,))
         if r and r["n"]: print(f"  {kind:<7} trades {r['n']}  win-rate {(r['w'] or 0)/r['n']*100:.1f}%  P&L {r['pnl']:+.4f} SOL  avg {(r['avg'] or 0)*100:+.1f}%  best {(r['best'] or 0)*100:+.0f}%  worst {(r['worst'] or 0)*100:+.0f}%")
         else: print(f"  {kind:<7} nessuna posizione chiusa")
+    print("=== USCITE CURVA (motivi) ===")
+    for r in s.q("SELECT reason,COUNT(*) n,COALESCE(SUM(pnl_sol),0) pnl FROM positions WHERE status='closed' AND kind='curve' GROUP BY reason ORDER BY n DESC LIMIT 8"):
+        print(f"  {r['n']:>3}  {r['pnl']:+.4f} SOL  {r['reason']}")
     print("=== POSIZIONI APERTE ===")
     for r in s.q("SELECT kind,COUNT(*) n FROM positions WHERE status='open' GROUP BY kind"): print(f"  {r['kind']:<7} {r['n']}")
     print("=== ESITI ===")

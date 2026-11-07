@@ -6,10 +6,13 @@ slippage_bps: 1500
 max_open_positions: 25
 runner_max_open: 10
 max_daily_loss_sol: 1.0
-min_alert_score: 0.44
-min_strong_score: 0.54
+min_alert_score: 0.50
+min_strong_score: 0.60
 prefilter_max_age_s: 180.0
 runner_min_liq_sol: 8.0
 runner_min_turnover: 0.10
 runner_min_buyers: 12
 api_port: 8787
+max_entry_mcap_sol: 150.0
+entry_max_progress: 0.45
+curve_stop_pct: 0.35
