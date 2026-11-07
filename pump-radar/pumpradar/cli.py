@@ -234,6 +234,10 @@ def _knn(args):
     from .learning.knn import find_twins, format_twins
     print(format_twins(find_twins(_lab_store(), args.mint, args.k)))
 
+def _dayreport(args):
+    from .learning.dayreport import dayreport, format_dayreport
+    print(format_dayreport(dayreport(_lab_store(), hours=args.hours)))
+
 def _verify(args):
     from .learning.verify import format_verify, verify
     print(format_verify(verify(_lab_store())))
@@ -272,6 +276,7 @@ def main(argv=None):
     kn=sub.add_parser("knn"); kn.add_argument("mint"); kn.add_argument("--k",type=int,default=25)
     au=sub.add_parser("autopsy"); au.add_argument("--send",action="store_true")
     sub.add_parser("guardian"); sub.add_parser("verify")
+    dr=sub.add_parser("dayreport"); dr.add_argument("--hours",type=float,default=24.0)
     sub.add_parser("doctor")
     p=sub.add_parser("prune"); p.add_argument("--snapshot-days",type=int,default=14); p.add_argument("--trade-days",type=int,default=45)
     args=ap.parse_args(argv); setup_logging(args.verbose)
@@ -291,6 +296,7 @@ def main(argv=None):
     elif args.cmd=="autopsy": _autopsy(args)
     elif args.cmd=="guardian": _guardian(args)
     elif args.cmd=="verify": _verify(args)
+    elif args.cmd=="dayreport": _dayreport(args)
     elif args.cmd=="backtest": _backtest(args)
     elif args.cmd=="doctor": asyncio.run(_doctor(args))
     elif args.cmd=="prune":
