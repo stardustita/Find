@@ -47,3 +47,34 @@ di segnali operativi.
 
 Sezione "Strategie OMBRA": per strategia, n / hit / EV netto eseguibile /
 quota positivi — direttamente confrontabile con le righe dei tier reali.
+
+## Registro dei verdetti (aggiornato coi dati reali)
+
+### 2026-11-07 — primo giro di dati (801 segnali curva, 80 PG, DB utente)
+
+- **`second_leg`: RIGETTATA al primo checkpoint.** n=35 (soglia: 30),
+  EV netto −36,7%, positivi 9%, hit1.8 solo 3% — peggio persino dei WATCH curva
+  (−23,4%). La "seconda ondata di compratori" dopo un crollo del 45–78% e', nei
+  dati, liquidita' di uscita per chi vende: l'ipotesi e' falsificata, non "da
+  ritoccare". Restera' registrata in ombra (costo zero) ma non verra' mai
+  promossa ne' ritarata: ritoccare le soglie di un'ipotesi morta sarebbe la
+  taratura sequenziale che questo metodo sostituisce.
+- **`pg_pullback`: IN RACCOLTA.** n=2 (entrambi picco 2x in 15 min, ma solo 1/2
+  netto positivo: anche i "vincitori" esigono disciplina di uscita). Nessuna
+  conclusione possibile; il tasso di fuoco e' lento (le graduation sono ~1% dei
+  lanci), il checkpoint n=30 e' questione di settimane-mesi di `run` acceso.
+- **Tier PG `RUN` (operativo paper): pareggio, non edge.** EV +1,4% su n=35 ma
+  positivi solo 34% (< 40% richiesti): resta com'e', non e' una promozione.
+- **Miraggio da coda registrato:** tier PG WATCH a EV medio +1187,9% con
+  positivi 44% — media dominata da 1–2 moonshot su un bucket residuale non
+  operativo. Da qui la **mediana del netto** in ogni riga di `analyze`
+  (colonna `mediana=`): il trade tipico si legge li', la media resta come
+  misura della coda.
+- **Curva, chiusura definitiva a n=801:** ogni sottogruppo negativo (miglior
+  fascia Q4 −17,7%; ingressi a progresso 0,30–0,72 tra −43% e −44%;
+  `not_bundle` ancora il peggiore dei gate grandi: il filtro bundle e'
+  confermato). Nessuna ulteriore analisi sulla selezione storica.
+
+Prossima lente, quando i dati maturano: tassi base per coorte da `launch_bars`
+(tutti i lanci, nessun filtro). Nessuna nuova strategia verra' inventata per
+rimpiazzare `second_leg`: si promuove solo cio' che i dati propongono.
