@@ -85,6 +85,9 @@ def test_factory_antileakage_and_dedupe(tmp_path):
     assert len(keys) == len(set(keys))                       # niente righe doppie
     cand = [r for r in f["rows"] if r["verdict"] == "CANDIDATE"]
     assert cand and all("ev60_pct" in r and "n60" in r for r in cand)
+    g = cand[0]["grid"]                       # griglia onesta: 3 ritardi + 5 piani
+    assert len(g) == 7 and {c["delay"] for c in g} >= {60, 120, 300}
+    assert cand[0]["honest_best"]["ev_pct"] > 0   # sui dati sintetici "buoni" regge anche senza look-ahead
 
 def test_autopsy_cli_writes_utf8(tmp_path, monkeypatch):
     monkeypatch.setenv("PR_DB_PATH", str(tmp_path / "x.db"))

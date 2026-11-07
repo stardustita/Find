@@ -63,3 +63,25 @@ di esiti e vita mediana 10s.
 
 Prossimo checkpoint: `esplosivo60` in ombra verso n=30 segnali risolti,
 letto in `analyze` (sezione OMBRA, anche per regime).
+
+## Anti-leakage su `esplosivo` — esito (2026-11-07, giro reale n=6.401)
+
+Il controllo ha dato il verdetto piu' netto possibile:
+
+| Valutazione | EV | Mediana | Positivi | n |
+|---|---|---|---|---|
+| Ingresso +15s (con look-ahead) | **+34,4%** | +1,9% | 50,8% | 494 |
+| Ingresso +60s (primo istante onesto) | **−28,1%** | −53,3% | 23,4% | 286 |
+
+Il fenomeno e' reale (p(2x) 70,7% vs 13,7%: l'esplosione del primo minuto
+predice davvero il picco), ma **non e' monetizzabile a +60s**: il picco avviene
+dentro il primo minuto e a +60s il prezzo incorpora gia' la mossa — chi entra
+allora finanzia l'uscita di chi era dentro. Lezione gemella di Fase 0: picco
+prevedibile ≠ percorso tradabile.
+
+Da questo giro la Fabbrica include la **griglia onesta** per ogni CANDIDATE:
+ingressi +60/+120/+300s × 5 piani di uscita (standard, take-profit-2x, runner,
+stop-stretto, trailing-only), e il verdetto CANDIDATE richiede che la migliore
+cella onesta abbia EV>0 con positivi ≥35%. Il detector ombra `esplosivo60`
+resta attivo dal vivo (giudice finale, riempimenti su trade reali): se anche
+li' fallira' il checkpoint n=30, la regola verra' dichiarata morta del tutto.
