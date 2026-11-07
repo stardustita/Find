@@ -56,9 +56,8 @@ def _index(summaries):
     return fps, means, stds
 
 
-def find_twins(store, mint, k=25, summaries=None):
-    rows = summaries if summaries is not None else launch_summaries(store)
-    fps, means, stds = _index(rows)
+def twins_from_index(fps, means, stds, mint, k=25):
+    """Gemelli da un indice gia' costruito (l'Orchestrator lo tiene in cache)."""
     if mint not in fps:
         return {"error": "impronta non disponibile (servono ~6 min di barre e un token noto)"}
     tgt, tfp = fps[mint]
@@ -83,6 +82,12 @@ def find_twins(store, mint, k=25, summaries=None):
         "twins": [{"mint": s["mint"], "dist": round(d, 2), "peak_mult": round(s["peak_mult"], 2),
                    "graduated": s["graduated"]} for d, s in twins],
     }
+
+
+def find_twins(store, mint, k=25, summaries=None):
+    rows = summaries if summaries is not None else launch_summaries(store)
+    fps, means, stds = _index(rows)
+    return twins_from_index(fps, means, stds, mint, k)
 
 
 def format_twins(t: dict) -> str:
