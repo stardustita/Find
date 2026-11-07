@@ -1,7 +1,6 @@
 """Taratura 2026-11 sui dati reali dell'utente (528 token, 24 posizioni curva,
 win-rate 0%): gli ingressi inseguivano i massimi. Questi test bloccano le regressioni."""
 import time
-import pytest
 from pumpradar.agents.exit import ExitAgent
 from pumpradar.agents.scorer import ScorerAgent
 from pumpradar.settings import Settings
