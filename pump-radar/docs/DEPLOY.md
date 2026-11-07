@@ -1,88 +1,99 @@
-# H24 gratuito — dove far girare PumpRadar
+# H24 — dove far girare PumpRadar (aggiornato dopo il fallimento Oracle)
 
 Requisiti del prodotto: Python 3.11, solo connessioni **in uscita** (WebSocket
-verso RPC Solana pubblici gratuiti), ~1–3 GB di disco a settimana, nessun
-servizio in ascolto su porte pubbliche. È il profilo ideale per i piani
-gratuiti "always free" — a patto di scegliere quelli veri.
+verso RPC Solana pubblici gratuiti), ~1–3 GB di disco a settimana, nessuna
+porta pubblica in ascolto. Il profilo è ideale per i piani gratuiti — a patto
+di scegliere quelli *ottenibili davvero*.
 
-## Il confronto onesto (novembre 2026)
+## Perché NON Oracle (nonostante sia il più generoso sulla carta)
 
-| Servizio | Gratis per sempre? | Specifiche | Il trucco |
-|---|---|---|---|
-| **Oracle Cloud Always Free** ARM | ✅ sì | 2 core ARM / 12 GB RAM, 200 GB disco, 10 TB traffico/mese | Carta richiesta (verifica, nessun addebito entro i limiti); istanze **inattive** riassorbite |
-| Google Cloud e2-micro | ✅ sì | 1 GB RAM, 30 GB disco | Solo region USA; RAM al limite per PumpRadar (serve swap) |
-| AWS / Azure gratuiti | ❌ 6–12 mesi | micro 1 GB | Scadono: non è un H24, è un conto alla rovescia |
-| Render / Railway / Fly.io | ❌ | — | I piani gratuiti **dormono** o sono crediti una tantum: un processo H24 non ci vive |
+Oracle Always Free (2 core ARM / 12 GB dopo il dimezzamento di giugno 2026)
+è in pratica **inutilizzabile per molti nuovi utenti**: registrazioni
+rifiutate alla verifica della carta, oppure istanze che non nascono mai per
+"out of host capacity" nelle region richieste. È il piano migliore del mondo
+per chi ce l'ha già; per chi parte oggi è un terno al lotto. Scartato.
 
-Note dalle fonti (novembre 2026): Oracle ha **dimezzato** la quota ARM gratuita
-il 15 giugno 2026 — da 4 core/24 GB a 2 core/12 GB, senza annunci pubblici:
-molte guide citano ancora i vecchi numeri ([InfoQ](https://www.infoq.com/news/2026/07/oracle-cloud-free-tier-limits/),
-[mrplanb](https://www.mrplanb.com/datacenter/free-vps-tiers)). 2 core e 12 GB
-restano comunque larghi per PumpRadar, e la quota disco (200 GB) copre mesi di
-raccolta ([confronto 2026](https://klymentiev.com/blog/free-vps)). Oracle
-riassorbe le istanze con CPU <10% per 7 giorni
-([guida](https://khimananda.com/blog/oracle-cloud-free-tier-for-learning)):
-PumpRadar ingerisce il firehose Solana in continuo, quindi "inattivo" non lo
-sarà mai. AWS ha chiuso il free tier annuale per i nuovi account, Azure dura
-12 mesi ([mrplanb](https://www.mrplanb.com/datacenter/free-vps-tiers)); i
-servizi PaaS gratuiti spengono i processi inattivi o danno solo crediti
-([guida](https://www.keydal.net/blog/free-server-guide)). Google e2-micro è
-gratis per sempre ma solo in region USA e con 1 GB di RAM e 1 GB di traffico
-in uscita/mese ([dettagli](https://www.whatsthehost.com/free-vps-hosting/)):
-il traffico Solana è quasi tutto in **ingresso** (gratuito), ma la RAM è
-stretta — piano B, non piano A.
+## Piano A (gratis vero, attivabile oggi): Google Cloud e2-micro
 
-## Raccomandazione: Oracle Cloud Always Free (Frankfurt)
+Always Free permanente, creazione immediata senza lotteria di capacità:
+**1 e2-micro, 1 GB RAM, 30 GB di disco standard** — ma solo nelle region
+**us-west1 / us-central1 / us-east1** e solo col disco *Standard* (il default
+"Balanced" si paga). Trappole note, tutte aggirabili:
 
-1. **Registrazione** su oracle.com/cloud/free — scegli come *home region*
-   **EU Frankfurt** (vicina, e storicamente con più capacità libera delle
-   region USA). Serve una carta per la verifica d'identità: eventuali
-   "addebiti" di verifica (~1 €) vengono rimborsati; entro i limiti Always
-   Free non si paga nulla. Imposta comunque un **budget alert a 0,01 €**.
-2. **Crea l'istanza**: Compute → Instances → Create → shape
-   **VM.Standard.A1.Flex** con **2 OCPU / 12 GB** (badge "Always Free
-   eligible"), Ubuntu 24.04 ARM, chiave SSH salvata con cura.
-   *Out of host capacity*? Normale sui piani gratuiti: riprova in un'altra
-   Availability Domain o dopo qualche ora.
-3. **Installa PumpRadar** (SSH nella VM):
+- **RAM 1 GB** → lo script `install.sh` crea automaticamente 2 GB di swap
+  sulle macchine piccole e abbassa il tetto dei pool tracciati.
+- **IPv4 esterno ≈ $3,65/mese** (gratis solo 1 ora/mese): senza IP esterno la
+  VM non esce su internet (il Cloud NAT costa di più). Onestà: il totale
+  realistico è **~3–4 €/mese per l'IP**, il resto è 0 €. Budget alert a 1 $.
+- **Egress incluso: 1 GB/mese** — PumpRadar invia quasi nulla (iscrizioni
+  RPC e richieste piccole; il firehose è traffico in *ingresso*, gratuito).
+  Niente dashboard pubblica, solo tunnel SSH.
+- **Disco 30 GB** → dopo la prima settimana scarica il DB sul tuo PC
+  (vedi sotto) e pota i trade grezzi più vecchi: le schede `launch_facts`
+  sono piccole e restano per sempre.
+
+### Creazione (console Google Cloud)
+
+1. cloud.google.com → crea progetto → **Compute Engine → Crea istanza**:
+   - Regione: **us-central1 (Iowa)** — Zona qualsiasi
+   - Tipo macchina: **e2-micro** (serie E2)
+   - Disco di avvio: Ubuntu 24.04 LTS, tipo **Standard persistent disk**, 30 GB
+   - Lascia l'IP esterno effimero (è la voce da ~$3,65/mese, inevitabile)
+2. Crea → attendi 1 minuto → pulsante **SSH** nella console (si apre nel browser).
+3. Nella shell della VM:
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/stardustita/Find/main/pump-radar/deploy/install.sh | bash
+   git clone https://github.com/stardustita/Find.git ~/Find 2>/dev/null || echo "repo privato? vedi nota deploy key sotto"
+   cd ~/Find && bash pump-radar/deploy/install.sh
    ```
-   (oppure clona il repo e lancia `bash pump-radar/deploy/install.sh`).
-   Il servizio `pumpradar` parte da solo, si riavvia da solo, riparte al boot.
-4. **Verifica** dopo qualche minuto:
+4. Verifica dopo qualche minuto:
    ```bash
-   journalctl -u pumpradar -f                                  # il flusso vive
-   cd ~/Find/pump-radar && .venv/bin/python -m pumpradar dayreport   # la copertura cresce
+   journalctl -u pumpradar -f
+   cd ~/Find/pump-radar && .venv/bin/python -m pumpradar dayreport
    ```
 
-## Gestione quotidiana (2 minuti)
+**Se la e2-micro satura** (log in ritardo, riavvii per memoria): è il suo
+limite fisico col firehose, non un bug. Si passa al Piano B senza perdere
+niente: il DB si copia con un comando (sotto).
 
-- Salute: `dayreport` (copertura, lanci, schede). Dashboard via tunnel SSH,
-  mai esposta: `ssh -L 8787:127.0.0.1:8787 ubuntu@<IP>` → http://localhost:8787.
-- Disco: 200 GB bastano per mesi; dopo la settimana di raccolta, `prune`
-  mensile (tiene 45 giorni di trade).
-- Backup del database (il vero capitale): ogni tanto scarica una copia:
-  ```bash
-  cd ~/Find/pump-radar && .venv/bin/python -c "import sqlite3; sqlite3.connect('data/radar.db').backup(sqlite3.connect('data/backup.db'))"
-  # poi, dal tuo PC:  scp ubuntu@<IP>:~/Find/pump-radar/data/backup.db .
+## Piano B (consigliato se 4–8 €/mese sono accettabili): Hetzner Cloud
+
+Niente lotterie, creazione in 1 minuto, datacenter in Germania (vicini e
+veloci). **CAX11** (ARM, 2 vCPU / 4 GB / 40 GB) o **CX23** (x86, stessa
+taglia): a listino post-giugno 2026 circa **5–6 €/mese + IVA e IPv4**, tutto
+compreso sotto gli ~8 €. 4 GB di RAM = PumpRadar gira largo, 20 TB di
+traffico inclusi. Procedura: hetzner.com/cloud → crea server (Falkenstein,
+Ubuntu 24.04, chiave SSH) → stesso `install.sh` di sopra.
+
+## Note operative (entrambi i piani)
+
+- **Repo privato?** Su GitHub: repo → Settings → Deploy keys → aggiungi la
+  chiave pubblica della VM (`cat ~/.ssh/id_ed25519.pub` dopo `ssh-keygen`).
+  Lo script lo ricorda da solo se il clone HTTPS fallisce.
+- **Porta la storia già raccolta**: dal PC Windows, copia il DB esistente:
+  ```powershell
+  scp pump-radar\data\radar.db <utente>@<IP-VM>:~/Find/pump-radar/data/radar.db
   ```
-- Aggiornamenti: `git -C ~/Find pull && sudo systemctl restart pumpradar`.
+  (a servizio fermo: `sudo systemctl stop pumpradar` prima, `start` dopo).
+  Così la settimana non riparte da zero: i lanci già censiti restano.
+- **Backup settimanale** (il DB è il capitale): `scp` inverso sul tuo PC,
+  poi eventualmente `python -m pumpradar prune`.
+- **Dashboard**: mai esporla. Tunnel: `ssh -L 8787:127.0.0.1:8787 <utente>@<IP>`
+  → http://localhost:8787.
+- **Controllo quotidiano** (30 secondi, via SSH): `dayreport` — copertura
+  continua? disco ok (`df -h`)? Se la copertura ha buchi, il report lo dice.
 
-## Piano B: Google Cloud e2-micro
+## Scartati, con motivo
 
-Console GCP → Compute Engine → e2-micro in **us-central1** (Always Free),
-Ubuntu, poi lo stesso `install.sh`. Aggiungi swap (la RAM è 1 GB):
-```bash
-sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
-```
-Se la raccolta deve essere europea e abbondante, però, resta Oracle.
+| Servizio | Perché no |
+|---|---|
+| Oracle Always Free | Mai ottenibile in pratica (verifiche/capacità) |
+| Render / Railway / Fly.io gratuiti | Sleep o crediti una tantum: un processo H24 non ci vive |
+| AWS / Azure "free" | Scadono in 6–12 mesi: la raccolta muore a metà |
+| PythonAnywhere gratuito | Solo HTTP in whitelist e task schedulati: niente firehose WebSocket |
 
-## Cosa NON fare
-
-- Niente Render/Railway/Fly "gratuiti" per il processo principale: sleep e
-  crediti una tantum = buchi di copertura proprio nei dati che ci servono.
-- Niente trial a scadenza (AWS/Azure): la settimana di raccolta non deve
-  morire a metà per una scadenza amministrativa.
-- La VM non tocca denaro reale (il prodotto è paper-only per costruzione):
-  anche in cloud resta un osservatorio, non un operatore.
+Fonti (nov. 2026): specifiche e trappole e2-micro
+([yangworks](https://yangworks.dev/guides/google-cloud-free-tier-e2-micro),
+[agentdeals](https://agentdeals.dev/vendor/google-compute-engine));
+prezzi Hetzner post-aumento giugno 2026
+([creacosas](https://www.creacosas.com/en/blogs/technology/best-cheap-vps-2026),
+[shattered.io](https://shattered.io/cheapest-cloud-vps-2026-provider-comparison/)).

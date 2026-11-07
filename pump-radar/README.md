@@ -49,7 +49,7 @@ Su Linux/macOS puoi usare `./run.sh`; su Windows `run.bat`.
 | `python -m pumpradar verify` | Banco offline senza look-ahead per SLANCIO: ingresso barra successiva, stress latenza, split 60/40 (docs/VERIFICA.md) |
 | `python -m pumpradar dayreport` | Report completo ultime 24h: picchi, vite, volumi, forme, creator, wallet |
 
-**H24 gratuito** (docs/DEPLOY.md): kit deploy per Oracle Cloud Always Free (VM ARM gratuita per sempre, `deploy/install.sh` + servizio systemd con riavvio automatico).
+**H24** (docs/DEPLOY.md): Oracle Free scartato (mai ottenibile), piano A Google e2-micro Always Free, piano B Hetzner ~5 €/mese; `deploy/install.sh` + servizio systemd con riavvio automatico e swap automatico sulle macchine piccole.
 
 **Database storico** (docs/DATABASE.md): cattura profonda di default — ogni trade dei primi 30 min di ogni lancio, scheda completa per token (`launch_facts`), barre di ogni pool graduato, prezzo SOL e regime persistiti. Obiettivo: 7 giorni di storia completa.
 
