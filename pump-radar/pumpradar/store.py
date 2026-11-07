@@ -66,6 +66,13 @@ CREATE TABLE IF NOT EXISTS pg_signals(
  id INTEGER PRIMARY KEY AUTOINCREMENT, pool TEXT, base_mint TEXT, ts REAL, tier TEXT,
  score REAL, price REAL, mcap_sol REAL, liq_sol REAL, age_s REAL, gates TEXT, plan TEXT, features TEXT);
 CREATE INDEX IF NOT EXISTS ix_pg_mint ON pg_signals(base_mint,ts);
+CREATE TABLE IF NOT EXISTS launch_bars(
+ mint TEXT, bucket INTEGER, lane TEXT, n_trades INTEGER, buy_sol REAL, sell_sol REAL,
+ n_buyers INTEGER, mcap_sol REAL, PRIMARY KEY(mint, bucket));
+CREATE TABLE IF NOT EXISTS shadow_signals(
+ id INTEGER PRIMARY KEY AUTOINCREMENT, strategy TEXT, kind TEXT, mint TEXT, pool TEXT,
+ ts REAL, entry_mcap REAL, context TEXT);
+CREATE INDEX IF NOT EXISTS ix_shadow_strategy ON shadow_signals(strategy, ts);
 CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v TEXT);
 """
 
@@ -180,10 +187,22 @@ class Store:
         except Exception:
             return r["v"]
 
-    def prune(self, snapshot_days: int = 14, trade_days: int = 45) -> dict:
+    def add_bars(self, rows):
+        if not rows: return
+        with self._lock:
+            self._conn.executemany("""INSERT OR REPLACE INTO launch_bars(mint,bucket,lane,n_trades,buy_sol,sell_sol,n_buyers,mcap_sol)
+                VALUES(?,?,?,?,?,?,?,?)""", rows); self._conn.commit()
+
+    def add_shadow(self, strategy, kind, mint, pool, ts, entry_mcap, context) -> int:
+        cur = self.execute("INSERT INTO shadow_signals(strategy,kind,mint,pool,ts,entry_mcap,context) VALUES(?,?,?,?,?,?,?)",
+                           (strategy, kind, mint, pool, ts, entry_mcap, json.dumps(context)))
+        return int(cur.lastrowid)
+
+    def prune(self, snapshot_days: int = 14, trade_days: int = 45, bars_days: int = 30) -> dict:
         now = time.time()
         a = self.execute("DELETE FROM snapshots WHERE ts < ?", (now - snapshot_days*86400,)).rowcount
         b = self.execute("DELETE FROM trades WHERE ts < ?", (now - trade_days*86400,)).rowcount
         c = self.execute("DELETE FROM amm_trades WHERE ts < ?", (now - trade_days*86400,)).rowcount
+        d = self.execute("DELETE FROM launch_bars WHERE bucket < ?", (int(now - bars_days*86400),)).rowcount
         self.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        return {"snapshots_deleted": a, "trades_deleted": b, "amm_trades_deleted": c}
+        return {"snapshots_deleted": a, "trades_deleted": b, "amm_trades_deleted": c, "launch_bars_deleted": d}
