@@ -50,3 +50,13 @@ def test_analyze_dissection(tmp_path):
     assert "0.72-0.90" in dis["by_progress"]
     from pumpradar.learning.analyze import format_report
     assert "FASE 0" in format_report(d)
+
+def test_agg_median_unmasks_tail_mirage():
+    # 9 trade tipici in perdita e UN moonshot: la media esplode, la mediana no.
+    from pumpradar.learning.analyze import _agg
+    facts = [{"peak15": 1.0, "peak24": 1.0, "net_mult": 0.6} for _ in range(9)]
+    facts.append({"peak15": 200.0, "peak24": 200.0, "net_mult": 160.0})
+    a = _agg(facts)
+    assert a["ev_pct"] > 1000            # media: miraggio da coda destra
+    assert a["med_net_mult"] == pytest.approx(0.6)   # trade tipico: -40%
+    assert a["pos_share"] == pytest.approx(0.1)

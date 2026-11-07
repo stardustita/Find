@@ -15,6 +15,7 @@ Costi: curva 17% round-trip, AMM 15.6% (stesse ipotesi di exit/runner).
 """
 from __future__ import annotations
 import json
+import statistics
 from collections import defaultdict
 
 CURVE_COST = 0.17
@@ -135,6 +136,10 @@ def _agg(facts):
         "avg_peak15": round(sum(f.get("peak15", 0) for f in facts) / n, 2) if "peak15" in facts[0] else None,
         "avg_net_mult": round(sum(nets) / len(nets), 3) if nets else None,
         "ev_pct": round((sum(nets) / len(nets) - 1) * 100, 1) if nets else None,
+        # Mediana del netto: la media su code pesanti e' dominata da 1-2 moonshot
+        # (es. un tier a EV +1187% con 56% di trade in perdita). La mediana dice
+        # com'e' andato il trade TIPICO, ed e' il primo smascheratore di miraggi.
+        "med_net_mult": round(statistics.median(nets), 3) if nets else None,
         "pos_share": round(sum(1 for x in nets if x > 1) / len(nets), 3) if nets else None,
     }
 
@@ -215,6 +220,7 @@ def _fmt_agg(a):
     parts.append(f"hit2x={a['hit2x_24h']:.0%} hit10x={a['hit10x_24h']:.0%}")
     if a.get("avg_peak15") is not None: parts.append(f"picco15={a['avg_peak15']:.2f}x")
     parts.append(f"EVnetto={a['ev_pct']:+.1f}% positivi={a['pos_share']:.0%}")
+    if a.get("med_net_mult") is not None: parts.append(f"mediana={(a['med_net_mult'] - 1) * 100:+.1f}%")
     return "  ".join(parts)
 
 
