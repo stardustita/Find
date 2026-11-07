@@ -159,6 +159,14 @@ def _analyze(args):
         Path(args.json).write_text(json.dumps(d, indent=2, ensure_ascii=False), encoding="utf-8")
         print(f"\n  ▸ dettaglio JSON salvato in {args.json}")
 
+def _optimize(args):
+    from .orchestrator import Orchestrator
+    from .learning.optimize import optimize, format_optimize
+    store = Orchestrator(_settings()).store
+    for kind in ("curve", "pg"):
+        print(format_optimize(optimize(store, kind)))
+        print()
+
 def _backtest(args):
     from .orchestrator import Orchestrator
     s=Orchestrator(_settings()).store
@@ -211,6 +219,7 @@ def main(argv=None):
     t=sub.add_parser("train"); t.add_argument("--min-rows",type=int,default=500); t.add_argument("--force",action="store_true")
     sub.add_parser("report"); sub.add_parser("backtest")
     an=sub.add_parser("analyze"); an.add_argument("--json",type=str,default="")
+    sub.add_parser("optimize")
     sub.add_parser("doctor")
     p=sub.add_parser("prune"); p.add_argument("--snapshot-days",type=int,default=14); p.add_argument("--trade-days",type=int,default=45)
     args=ap.parse_args(argv); setup_logging(args.verbose)
@@ -221,6 +230,7 @@ def main(argv=None):
     elif args.cmd=="train": _train(args)
     elif args.cmd=="report": _report(args)
     elif args.cmd=="analyze": _analyze(args)
+    elif args.cmd=="optimize": _optimize(args)
     elif args.cmd=="backtest": _backtest(args)
     elif args.cmd=="doctor": asyncio.run(_doctor(args))
     elif args.cmd=="prune":
