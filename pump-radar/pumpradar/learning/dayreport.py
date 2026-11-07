@@ -122,10 +122,10 @@ def format_dayreport(d: dict) -> str:
     for w, n in c["top"]:
         L.append(f"  {w[:12]}… {n} lanci")
     w = d["wallets"]
-    L.append(f"--- wallet (solo token tracciati, {w['n_trades_tracked']} trade): {w['unique_traders']} trader unici · "
+    L.append(f"--- wallet (trade dei primi 30 min di ogni lancio, {w['n_trades_tracked']} trade): {w['unique_traders']} trader unici · "
              f"nuovi {w['new_wallets']} · su >=5 token: {w['sprayers']}")
     L.append("  piu' attivi: " + ", ".join(f"{a[:8]}…({n} trade/{t} token)" for a, n, t in w["top_active"]))
     L.append("  compratori precoci (primi 60s) piu' frequenti: " + ", ".join(f"{a[:8]}…({n})" for a, n in w["top_early"]))
-    L.append("  ! Prezzi/trade/volumi/wallet: dati on-chain completi per i lanci (barre 5s); dettaglio trade solo per token tracciati.")
+    L.append("  ! Prezzi/volumi: barre 5s di ogni lancio; trade/wallet: dettaglio completo dei primi 30 min (cattura profonda).")
     L.append("  ! 'Visualizzatori'/engagement del sito pump.fun: NON disponibili on-chain ne' via feed gratuiti.")
     return "\n".join(L)

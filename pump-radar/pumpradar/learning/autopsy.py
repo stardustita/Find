@@ -82,6 +82,18 @@ def build_autopsy(store) -> str:
                      f"{'⛔ RETROCESSO a osservazione' if v['demote'] else 'attivo'}")
     else:
         L.append("- nessun tier con segnali risolti")
+    cov = store.q("SELECT date(created_at,'unixepoch') d, COUNT(*) n FROM tokens WHERE created_at>=? GROUP BY d ORDER BY d",
+                  (now - 7 * 86400,))
+    try:
+        facts_n = store.q("SELECT COUNT(*) c FROM launch_facts")[0]["c"]
+        pool_n = store.q("SELECT COUNT(DISTINCT pool) c FROM pool_bars")[0]["c"]
+    except Exception:
+        facts_n, pool_n = 0, 0
+    L += ["", "## Copertura storica (ultimi 7 giorni)"]
+    for r in cov:
+        L.append(f"- {r['d']}: {r['n']} lanci osservati")
+    L.append(f"- schede lancio complete (launch_facts): {facts_n} · pool con barre PG: {pool_n}")
+    L.append("- obiettivo settimana: copertura continua (nessuna giornata a zero) prima di ogni nuova analisi.")
     L += ["", "## Tier storici (EV eseguibile, per memoria)"]
     for t, a in sorted(d.get("pg", {}).get("by_tier", {}).items()):
         L.append(f"- PG {t}: n={a.get('n')} EV={a.get('ev_pct')}% mediana={_med(a)}")

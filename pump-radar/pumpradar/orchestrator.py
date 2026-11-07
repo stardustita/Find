@@ -43,7 +43,7 @@ class Orchestrator:
         self._trade_buf=[]; self._amm_buf=[]; self._orphans={}; self._seen_creates=set(); self._last_signal={}
         self._bars={}; self._shadow_last={}
         self._blacklist=set(); self._regime_label="unknown"; self._demoted=set(); self._tier_health={}; self._guardian_ts=0.0; self._knn=({},[],[])
-        self._gem_times=[]
+        self._gem_times=[]; self._pool_bars={}
         self._entry_times=[]; self._signal_times=[]; self._pg_last_signal={}; self._quote_mints_seen=set(); self._tick_count=0
         self.started_at=time.time(); self.stats=defaultdict(int); self._top_pg_score=0.0
 
@@ -74,6 +74,10 @@ class Orchestrator:
                 tasks.append(asyncio.create_task(self._supervise("pumpportal", self.pp.run)))
                 if self.s.trade_stream: tasks.append(asyncio.create_task(self._supervise("pp_subs", self.pp.pump_subscriptions)))
             if self.s.amm_enabled: tasks.append(asyncio.create_task(self._supervise("amm", self.amm.run)))
+        try:
+            n_facts = await asyncio.to_thread(self.store.backfill_launch_facts)
+            if n_facts: log.info("📚 schede lancio completate a ritroso: %d", n_facts)
+        except Exception as e: log.debug("backfill facts: %s", e)
         log.info("orchestratore avviato | feed=%s | amm=%s | db=%s", self.s.feed, self.s.amm_enabled, self.s.db_path)
         await asyncio.gather(*tasks)
 
@@ -128,7 +132,7 @@ class Orchestrator:
                 self.stats["trades_orphan"]+=1; self._maybe_recover(mint,tr); continue
             st.observe(tr); self.stats["trades"]+=1; self._update_bar(st,tr)
             if tr.get("quote_mint") and tr.get("lane")=="cross": self._quote_mints_seen.add(str(tr["quote_mint"]))
-            if st.state in ("new","watch") or mint in self.open_pos_mints: self._trade_buf.append(tr)
+            if self._persist_trade(st, mint, tr): self._trade_buf.append(tr)
     def _maybe_recover(self, mint, tr):
         if tr.get("lane")!="sol": return
         now=float(tr.get("ts") or time.time()); rec=self._orphans.get(mint)
@@ -155,8 +159,11 @@ class Orchestrator:
             from .learning.regime import current_regime
             summaries=launch_summaries(self.store)
             self._blacklist=serial_ruggers(summaries)
-            self._regime_label=str(current_regime(self.store).get("regime","unknown"))
+            cur_regime_row=current_regime(self.store)
+            self._regime_label=str(cur_regime_row.get("regime","unknown"))
             self._tier_health=tier_health(self.store)
+            try: self.store.add_regime(cur_regime_row)
+            except Exception: pass
             self._demoted={k for k,v in self._tier_health.items() if v["demote"]}
             self._knn=knn_index(summaries)
             log.info("🛡️ Guardiani: blacklist=%d creator · regime=%s · tier retrocessi=%s",
@@ -173,6 +180,15 @@ class Orchestrator:
                 return "gemelli_negativi"
         except Exception: pass
         return None
+    def _persist_trade(self, st, mint, tr) -> bool:
+        """Cattura profonda (database storico): dettaglio trade di OGNI lancio
+        per i primi 30 min di vita, non solo dei token promossi in watch."""
+        if st.state in ("new", "watch") or mint in self.open_pos_mints:
+            return True
+        if not getattr(self.s, "deep_capture", True):
+            return False
+        ts = float(tr.get("ts") or 0)
+        return bool(st.created_at and ts and ts - st.created_at <= 1800)
     def _update_bar(self, st, tr):
         """Aggregato 5s per ogni lancio (primi 30 min di vita), anche se scartato:
         e' il dataset senza survivorship bias della Fase 1."""
@@ -198,6 +214,32 @@ class Orchestrator:
             rows.append((k[0],k[1],acc[5],acc[0],round(acc[1],4),round(acc[2],4),len(acc[3]),acc[4] or None))
         try: self.store.add_bars(rows); self.stats["bars_written"]+=len(rows)
         except Exception as e: log.debug("bars: %s", e)
+    def _update_pool_bar(self, st, ev):
+        """Aggregato 30s per OGNI pool graduato (prime 6h): il percorso PG
+        completo, non solo dei pool tracciati dal runner."""
+        try:
+            ts=float(ev.get("ts") or 0)
+            if not ts or ts-(st.created_at or ts)>21600: return
+            b=int(ts//30*30); key=(st.pool,b); acc=self._pool_bars.get(key)
+            if acc is None: acc=self._pool_bars[key]=[0,0.0,0.0,set(),0.0,0.0]
+            acc[0]+=1
+            if ev.get("is_buy"):
+                acc[1]+=float(ev.get("sol") or 0)
+                if ev.get("trader"): acc[3].add(ev["trader"])
+            else: acc[2]+=float(ev.get("sol") or 0)
+            if ev.get("mcap_sol"): acc[4]=float(ev["mcap_sol"])
+            if ev.get("liq_sol"): acc[5]=float(ev["liq_sol"])
+        except Exception: pass
+    def _flush_pool_bars(self):
+        if not self._pool_bars: return
+        nowb=int(time.time()//30*30); ready=[k for k in self._pool_bars if k[1]<nowb]
+        if not ready: return
+        rows=[]
+        for k in ready:
+            acc=self._pool_bars.pop(k)
+            rows.append((k[0],k[1],acc[0],round(acc[1],4),round(acc[2],4),len(acc[3]),acc[4] or None,acc[5] or None))
+        try: self.store.add_pool_bars(rows); self.stats["pool_bars_written"]+=len(rows)
+        except Exception as e: log.debug("pool bars: %s", e)
     async def _flush_loop(self):
         while True:
             await asyncio.sleep(0.4)
@@ -206,7 +248,7 @@ class Orchestrator:
                 for tr in buf:
                     try: self.store.add_trade(tr)
                     except Exception as e: log.debug("flush trade: %s", e)
-            self._flush_bars()
+            self._flush_bars(); self._flush_pool_bars()
             if self._amm_buf:
                 buf,self._amm_buf=self._amm_buf,[]
                 with self.store._lock:
@@ -251,7 +293,8 @@ class Orchestrator:
             if st is None: self.stats["amm_orphan"]+=1; continue
             st.observe(ev); self.stats["amm_trades"]+=1
             if st.track:
-                self._amm_buf.append({"pool":st.pool,"ts":float(ev.get("_ts") or time.time()),"tx":ev.get("signature"),"trader":ev.get("user"),"is_buy":ev.get("is_buy"),"sol":float(ev.get("quote_amount") or 0)/(10**st.qdec),"tokens":float(ev.get("base_amount") or 0)/(10**st.bdec),"price":st.price,"mcap_sol":st.mcap_sol,"liq_sol":st.liq_sol})
+                _amm_ev={"pool":st.pool,"ts":float(ev.get("_ts") or time.time()),"tx":ev.get("signature"),"trader":ev.get("user"),"is_buy":ev.get("is_buy"),"sol":float(ev.get("quote_amount") or 0)/(10**st.qdec),"tokens":float(ev.get("base_amount") or 0)/(10**st.bdec),"price":st.price,"mcap_sol":st.mcap_sol,"liq_sol":st.liq_sol}
+                self._amm_buf.append(_amm_ev); self._update_pool_bar(st,_amm_ev)
     async def _pg_tick(self, now):
         if not self.pools: return
         self.open_runner_pools={r["pool"] for r in self.store.q("SELECT pool FROM positions WHERE status='open' AND kind='runner' AND pool IS NOT NULL")}
@@ -427,6 +470,10 @@ class Orchestrator:
             await asyncio.sleep(30); now=time.time()
             for m,st in list(self.states.items()):
                 if st.state=="dead" and st.n_trades: self._flush_token_stats(st); st.n_trades=0
+                if st.state in ("dead","bonded") and not st.meta.get("facts_done"):
+                    st.meta["facts_done"]=1
+                    try: self.store.compute_launch_facts(m)
+                    except Exception: pass
             cutoff=now-self.s.max_watch_seconds*6
             for m,st in list(self.states.items()):
                 if st.state in ("dead","bonded") and (st.last_ts or st.created_at)<cutoff and m not in self.open_pos_mints:
@@ -435,6 +482,8 @@ class Orchestrator:
     async def _quote_price_loop(self):
         while True:
             await asyncio.sleep(60)
+            try: self.store.add_sol_price(time.time(), self.enr.sol_price)
+            except Exception: pass
             try:
                 # quote_prices e' indicizzato per mint QUOTE (cross): mai scrivere chiavi di token sol-lane
                 unknown=[m for m in self._quote_mints_seen if m not in self.feed.quote_prices][:50]

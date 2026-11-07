@@ -83,6 +83,19 @@ CREATE TABLE IF NOT EXISTS creator_stats(
 CREATE TABLE IF NOT EXISTS wallet_flags(
  wallet TEXT PRIMARY KEY, n_tokens INTEGER, n_repeat_creators INTEGER,
  max_creator_launches INTEGER, bonded_share REAL, updated REAL);
+CREATE TABLE IF NOT EXISTS launch_facts(
+ mint TEXT PRIMARY KEY, creator TEXT, created_at REAL, lane TEXT, graduated INTEGER DEFAULT 0,
+ first_mcap REAL, peak_mcap REAL, t_peak_s REAL, last_mcap REAL, lifespan_s REAL,
+ n_trades INTEGER, buy_sol REAL, sell_sol REAL, uniq_buyers INTEGER, uniq_sellers INTEGER,
+ top1_share REAL, dev_buy_60s REAL, snipe_share5s REAL, peak_mult REAL, last_mult REAL,
+ creator_prior INTEGER);
+CREATE TABLE IF NOT EXISTS pool_bars(
+ pool TEXT, bucket INTEGER, n_trades INTEGER, buy_sol REAL, sell_sol REAL,
+ n_buyers INTEGER, mcap_sol REAL, liq_sol REAL, PRIMARY KEY(pool, bucket));
+CREATE INDEX IF NOT EXISTS ix_poolbars_bucket ON pool_bars(bucket);
+CREATE TABLE IF NOT EXISTS sol_prices(ts INTEGER PRIMARY KEY, price REAL);
+CREATE TABLE IF NOT EXISTS regime_log(
+ hour INTEGER PRIMARY KEY, regime TEXT, grad_rate REAL, baseline REAL, n_launch INTEGER, med_life_s REAL);
 CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v TEXT);
 """
 
@@ -233,11 +246,88 @@ class Store:
                                    [(w["wallet"], w["n_tokens"], w["n_repeat_creators"], w["max_creator_launches"], w["bonded_share"], now) for w in wallets])
             self._conn.commit()
 
+    # ---------------- database storico (cattura profonda) ----------------
+    def add_launch_facts(self, f: dict):
+        cols = ("mint,creator,created_at,lane,graduated,first_mcap,peak_mcap,t_peak_s,last_mcap,lifespan_s,"
+                "n_trades,buy_sol,sell_sol,uniq_buyers,uniq_sellers,top1_share,dev_buy_60s,snipe_share5s,"
+                "peak_mult,last_mult,creator_prior")
+        with self._lock:
+            self._conn.execute(f"INSERT OR IGNORE INTO launch_facts({cols}) VALUES({','.join('?' * 21)})",
+                               tuple(f.get(k) for k in cols.split(",")))
+            self._conn.commit()
+
+    def compute_launch_facts(self, mint: str) -> bool:
+        """Scheda completa di un lancio da barre+trade (SQL puro, point-in-time)."""
+        tok = self.q("SELECT creator,created_at,lane,bonded_at FROM tokens WHERE mint=?", (mint,))
+        bars = self.q("SELECT bucket,mcap_sol FROM launch_bars WHERE mint=? AND mcap_sol>0 ORDER BY bucket", (mint,))
+        if not tok or not bars:
+            return False
+        t = tok[0]; created = float(t["created_at"] or bars[0]["bucket"])
+        mcaps = [float(b["mcap_sol"]) for b in bars]
+        first, peak = mcaps[0], max(mcaps)
+        t_peak = float(bars[mcaps.index(peak)]["bucket"]) - created
+        agg = self.q("""SELECT COUNT(*) n, COALESCE(SUM(CASE WHEN is_buy=1 THEN sol END),0) b,
+                        COALESCE(SUM(CASE WHEN is_buy=0 THEN sol END),0) s,
+                        COUNT(DISTINCT CASE WHEN is_buy=1 THEN trader END) ub,
+                        COUNT(DISTINCT CASE WHEN is_buy=0 THEN trader END) us
+                        FROM trades WHERE mint=?""", (mint,))[0]
+        top = self.q("SELECT COALESCE(SUM(sol),0) t FROM trades WHERE mint=? AND is_buy=1 GROUP BY trader ORDER BY t DESC LIMIT 1", (mint,))
+        dev = self.q("SELECT COALESCE(SUM(sol),0) t FROM trades WHERE mint=? AND is_buy=1 AND trader=? AND ts<=?",
+                     (mint, t["creator"], created + 60)) if t["creator"] else []
+        sn5 = self.q("SELECT COALESCE(SUM(sol),0) t FROM trades WHERE mint=? AND is_buy=1 AND ts<=?", (mint, created + 5))
+        buy = float(agg["b"] or 0)
+        prior = self.q("SELECT COUNT(*) c FROM tokens WHERE creator=? AND created_at<? AND mint<>?",
+                       (t["creator"], created, mint))[0]["c"] if t["creator"] else 0
+        self.add_launch_facts({
+            "mint": mint, "creator": t["creator"], "created_at": created, "lane": t["lane"],
+            "graduated": 1 if t["bonded_at"] else 0, "first_mcap": first, "peak_mcap": peak,
+            "t_peak_s": t_peak, "last_mcap": mcaps[-1],
+            "lifespan_s": float(bars[-1]["bucket"] - bars[0]["bucket"]),
+            "n_trades": int(agg["n"] or 0), "buy_sol": buy, "sell_sol": float(agg["s"] or 0),
+            "uniq_buyers": int(agg["ub"] or 0), "uniq_sellers": int(agg["us"] or 0),
+            "top1_share": round(float(top[0]["t"]) / buy, 3) if top and buy > 0 else 0.0,
+            "dev_buy_60s": float(dev[0]["t"]) if dev else 0.0,
+            "snipe_share5s": round(float(sn5[0]["t"]) / buy, 3) if buy > 0 else 0.0,
+            "peak_mult": round(peak / first, 3) if first else 0.0,
+            "last_mult": round(mcaps[-1] / first, 3) if first else 0.0,
+            "creator_prior": int(prior)})
+        return True
+
+    def backfill_launch_facts(self, older_than_s: int = 1800, limit: int = 5000) -> int:
+        rows = self.q("""SELECT t.mint FROM tokens t LEFT JOIN launch_facts f ON f.mint=t.mint
+                         WHERE f.mint IS NULL AND t.created_at<? ORDER BY t.created_at LIMIT ?""",
+                      (time.time() - older_than_s, limit))
+        return sum(1 for r in rows if self.compute_launch_facts(r["mint"]))
+
+    def add_pool_bars(self, rows):
+        with self._lock:
+            self._conn.executemany(
+                """INSERT OR REPLACE INTO pool_bars(pool,bucket,n_trades,buy_sol,sell_sol,n_buyers,mcap_sol,liq_sol)
+                   VALUES(?,?,?,?,?,?,?,?)""", rows)
+            self._conn.commit()
+
+    def add_sol_price(self, ts, price):
+        if not price or float(price) <= 0:
+            return
+        with self._lock:
+            self._conn.execute("INSERT OR REPLACE INTO sol_prices(ts,price) VALUES(?,?)",
+                               (int(float(ts) // 60 * 60), float(price)))
+            self._conn.commit()
+
+    def add_regime(self, row):
+        with self._lock:
+            self._conn.execute("INSERT OR REPLACE INTO regime_log(hour,regime,grad_rate,baseline,n_launch,med_life_s) VALUES(?,?,?,?,?,?)",
+                               (int(row.get("hour") or 0), row.get("regime"), row.get("grad_rate"),
+                                row.get("baseline"), row.get("n_launch"), row.get("med_life_s")))
+            self._conn.commit()
+
     def prune(self, snapshot_days: int = 14, trade_days: int = 45, bars_days: int = 30) -> dict:
         now = time.time()
         a = self.execute("DELETE FROM snapshots WHERE ts < ?", (now - snapshot_days*86400,)).rowcount
         b = self.execute("DELETE FROM trades WHERE ts < ?", (now - trade_days*86400,)).rowcount
         c = self.execute("DELETE FROM amm_trades WHERE ts < ?", (now - trade_days*86400,)).rowcount
         d = self.execute("DELETE FROM launch_bars WHERE bucket < ?", (int(now - bars_days*86400),)).rowcount
+        e = self.execute("DELETE FROM pool_bars WHERE bucket < ?", (int(now - bars_days*86400),)).rowcount
         self.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        return {"snapshots_deleted": a, "trades_deleted": b, "amm_trades_deleted": c, "launch_bars_deleted": d}
+        return {"snapshots_deleted": a, "trades_deleted": b, "amm_trades_deleted": c,
+                "launch_bars_deleted": d, "pool_bars_deleted": e}

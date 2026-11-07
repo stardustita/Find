@@ -49,6 +49,8 @@ Su Linux/macOS puoi usare `./run.sh`; su Windows `run.bat`.
 | `python -m pumpradar verify` | Banco offline senza look-ahead per SLANCIO: ingresso barra successiva, stress latenza, split 60/40 (docs/VERIFICA.md) |
 | `python -m pumpradar dayreport` | Report completo ultime 24h: picchi, vite, volumi, forme, creator, wallet |
 
+**Database storico** (docs/DATABASE.md): cattura profonda di default — ogni trade dei primi 30 min di ogni lancio, scheda completa per token (`launch_facts`), barre di ogni pool graduato, prezzo SOL e regime persistiti. Obiettivo: 7 giorni di storia completa.
+
 **Motore GEMME** (docs/RICOSTRUZIONE.md): alert 🚀 SLANCIO in tempo reale durante la formazione dell'esplosione del primo minuto (18–90s, +25% dal minimo, compratori in espansione), paper e censurati dai Guardiani; giudicati da `analyze` e retrocessi in automatico dal Revisore se l'EV degli ultimi 100 segnali risolti è negativo.
 | `python -m pumpradar autopsy` | Fase 4: report automatico (reports/, `--send` per Telegram) |
 | `python -m pumpradar prune` | manutenzione database |
