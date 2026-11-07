@@ -1,5 +1,5 @@
 @echo off
-rem PumpRadar watchdog — rilancia il raccoglitore se esce o crasha.
+rem PumpRadar watchdog - rilancia il raccoglitore se esce o crasha.
 rem Non chiudere questa finestra: per fermarlo, termina l'attivita' PumpRadar
 rem da Utilita' di pianificazione (o chiudi il processo python).
 set PYTHONUTF8=1
