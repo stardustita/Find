@@ -1,6 +1,6 @@
 from __future__ import annotations
 import hashlib, struct
-from ..utils import INIT_RTOK, INIT_VSOL, INIT_VTOK, TOTAL_SUPPLY, b58encode as b58, clamp
+from ..utils import INIT_VSOL, TOTAL_SUPPLY, b58encode as b58
 
 PUMP_PROGRAM = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
 AMM_PROGRAM = "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA"

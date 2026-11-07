@@ -1,5 +1,4 @@
 import random, time
-import pytest
 from pumpradar.runner import GradState, PostGradAgent, RunnerBook, RunnerScorer
 from pumpradar.settings import Settings
 from pumpradar.store import Store

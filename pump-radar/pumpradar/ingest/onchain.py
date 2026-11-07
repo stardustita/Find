@@ -1,8 +1,7 @@
 from __future__ import annotations
 import asyncio, base64, json, logging, time
 from collections import Counter
-from .pumpevent import (DISC_COMPLETE, DISC_CREATE, DISC_TRADE, PUMP_PROGRAM, SOL_QUOTE,
-                        TOTAL_SUPPLY, classify_lane, decode_complete, decode_create, decode_trade)
+from .pumpevent import (DISC_COMPLETE, DISC_CREATE, DISC_TRADE, PUMP_PROGRAM, TOTAL_SUPPLY, classify_lane, decode_complete, decode_create, decode_trade)
 
 log = logging.getLogger("ingest.onchain")
 

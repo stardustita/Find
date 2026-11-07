@@ -106,7 +106,7 @@ class Settings:
     narrative_enabled: bool = False
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "llama3.2:3b"
-    api_host: str = "0.0.0.0"
+    api_host: str = "127.0.0.1"   # override con PR_API_HOST=0.0.0.0 solo se serve accesso LAN
     api_port: int = 8787
 
     extra: dict = field(default_factory=dict)

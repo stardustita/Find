@@ -11,7 +11,7 @@ class ExitAgent:
     def open_count(self):
         r=self.store.one("SELECT COUNT(*) c FROM positions WHERE status='open' AND kind='curve'"); return int(r["c"]) if r else 0
     def realized_today(self):
-        start=time.time()-(time.time()%86400)
+        lt=time.localtime(); start=time.mktime((lt.tm_year,lt.tm_mon,lt.tm_mday,0,0,0,0,0,-1))
         r=self.store.one("SELECT COALESCE(SUM(pnl_sol),0) s FROM positions WHERE status='closed' AND closed_ts>=?", (start,))
         return float(r["s"]) if r else 0.0
     def evaluate(self, pos, st, F):
@@ -31,6 +31,8 @@ class ExitAgent:
     def apply(self, pos, action, reason, pct, st):
         entry=float(pos["entry_mcap"] or 0) or 1e-9; cur=float(st.mcap_sol or entry); mult=cur/entry
         cost_pct=(self.s.pump_fee_bps*2+self.s.slippage_bps)/10000.0
+        if action=="CLOSE":  # chiude solo il residuo non ancora venduto a scaletta
+            pct=pct*max(0.0,1.0-float(self.store.kv_get(f"sold_{pos['id']}",0.0) or 0.0))
         pnl=float(pos["size_sol"] or 0)*pct*((mult-1.0)-cost_pct)
         prev=float(pos["pnl_sol"] or 0.0); total_size=float(pos["size_sol"] or 0) or 1e-9
         peak=max(float(pos["peak_mcap"] or 0),cur)

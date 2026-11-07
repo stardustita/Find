@@ -23,7 +23,9 @@ def build_server(orch, host="0.0.0.0", port=8787):
         def _json(self, obj, status=200):
             body=json.dumps(obj).encode(); self.send_response(status); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
         def do_GET(self):
-            u=urlparse(self.path); qs=parse_qs(u.query); limit=int((qs.get("limit") or [30])[0])
+            u=urlparse(self.path); qs=parse_qs(u.query)
+            try: limit=max(1,min(200,int((qs.get("limit") or [30])[0])))
+            except Exception: limit=30
             try:
                 if u.path=="/":
                     body=HTML.encode(); self.send_response(200); self.send_header("Content-Type","text/html; charset=utf-8"); self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body); return
@@ -41,7 +43,14 @@ def build_server(orch, host="0.0.0.0", port=8787):
                 if u.path=="/api/positions":
                     rows=orch.store.q("SELECT * FROM positions ORDER BY opened_ts DESC LIMIT ?", (limit,)); out=[]
                     for r in rows:
-                        sym=orch.store.one("SELECT symbol FROM tokens WHERE mint=?", (r["mint"],)); e=float(r["entry_mcap"] or 0) or 1e-9; cur=float(r["exit_mcap"] or r["peak_mcap"] or e)
+                        sym=orch.store.one("SELECT symbol FROM tokens WHERE mint=?", (r["mint"],)); e=float(r["entry_mcap"] or 0) or 1e-9
+                        cur=None
+                        if r["status"]=="open":  # multiplo corrente, non il picco
+                            if r["kind"]=="runner":
+                                gs=orch.pools.get(r["pool"] or ""); cur=gs.mcap_sol if gs else None
+                            else:
+                                stt=orch.states.get(r["mint"]); cur=stt.mcap_sol if stt else None
+                        if cur is None: cur=float(r["exit_mcap"] or r["peak_mcap"] or e)
                         out.append({"mint":r["mint"],"symbol":sym["symbol"] if sym else "","kind":r["kind"],"pool":r["pool"],"mult":cur/e,"pnl_sol":r["pnl_sol"],"status":r["status"],"reason":r["reason"],"entry_mcap":e,"peak_mcap":r["peak_mcap"]})
                     return self._json(out)
                 if u.path=="/api/stats":

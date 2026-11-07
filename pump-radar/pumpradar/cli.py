@@ -1,5 +1,5 @@
 from __future__ import annotations
-import argparse, asyncio, json, logging, random, time
+import argparse, asyncio, json, logging, random
 from .logging_setup import setup_logging
 from .settings import Settings
 log=logging.getLogger("cli")
@@ -100,12 +100,28 @@ def _report(args):
 def _backtest(args):
     from .orchestrator import Orchestrator
     s=Orchestrator(_settings()).store
-    rows=s.q("""SELECT sg.tier,COUNT(*) n,AVG(o.max_mult_15m) avg15,SUM(CASE WHEN o.max_mult_15m>=1.8 THEN 1 ELSE 0 END) hit15,
-                AVG(o.max_mult_24h) avg24,SUM(CASE WHEN o.max_mult_24h>=10 THEN 1 ELSE 0 END) hit10x,SUM(CASE WHEN o.max_mult_24h>=100 THEN 1 ELSE 0 END) hit100x
-                FROM signals sg JOIN outcomes o ON o.mint=sg.mint GROUP BY sg.tier""")
-    print("Backtest segnali curva (esiti da trades osservati; non include slippage reale/MEV):")
-    for r in rows: print(f"  {r['tier']:<8} n={r['n']} hit15={r['hit15']} avg15={r['avg15'] or 0:.2f}x hit10x={r['hit10x']} hit100x={r['hit100x']}")
+    # finestre calcolate DAL timestamp e DAL prezzo del segnale: il vecchio backtest
+    # partiva dal primo trade del token e attribuiva al segnale anche picchi precedenti.
+    rows=s.q("""SELECT sg.tier,COUNT(*) n,
+                AVG((SELECT MAX(t.mcap_sol) FROM trades t WHERE t.mint=sg.mint AND t.ts BETWEEN sg.ts AND sg.ts+900)/sg.mcap_sol) avg15,
+                SUM(CASE WHEN (SELECT MAX(t.mcap_sol) FROM trades t WHERE t.mint=sg.mint AND t.ts BETWEEN sg.ts AND sg.ts+900)>=1.8*sg.mcap_sol THEN 1 ELSE 0 END) hit15,
+                AVG((SELECT MAX(t.mcap_sol) FROM trades t WHERE t.mint=sg.mint AND t.ts BETWEEN sg.ts AND sg.ts+86400)/sg.mcap_sol) avg24,
+                SUM(CASE WHEN (SELECT MAX(t.mcap_sol) FROM trades t WHERE t.mint=sg.mint AND t.ts BETWEEN sg.ts AND sg.ts+86400)>=10*sg.mcap_sol THEN 1 ELSE 0 END) hit10x,
+                SUM(CASE WHEN (SELECT MAX(t.mcap_sol) FROM trades t WHERE t.mint=sg.mint AND t.ts BETWEEN sg.ts AND sg.ts+86400)>=100*sg.mcap_sol THEN 1 ELSE 0 END) hit100x
+                FROM signals sg WHERE sg.mcap_sol>0 GROUP BY sg.tier""")
+    print("Backtest segnali curva (finestre dal segnale; esiti da trade osservati, senza slippage reale/MEV):")
+    for r in rows: print(f"  {r['tier']:<8} n={r['n']} hit15={r['hit15']} avg15={r['avg15'] or 0:.2f}x avg24={r['avg24'] or 0:.2f}x hit10x={r['hit10x']} hit100x={r['hit100x']}")
     if not rows: print("  nessun segnale etichettato: esegui prima label dopo una sessione di raccolta.")
+    rows=s.q("""SELECT pg.tier,COUNT(*) n,
+                AVG((SELECT MAX(a.mcap_sol) FROM amm_trades a WHERE a.pool=pg.pool AND a.ts BETWEEN pg.ts AND pg.ts+3600)/pg.mcap_sol) avg1h,
+                AVG((SELECT MAX(a.mcap_sol) FROM amm_trades a WHERE a.pool=pg.pool AND a.ts BETWEEN pg.ts AND pg.ts+86400)/pg.mcap_sol) avg24,
+                SUM(CASE WHEN (SELECT MAX(a.mcap_sol) FROM amm_trades a WHERE a.pool=pg.pool AND a.ts BETWEEN pg.ts AND pg.ts+86400)>=2*pg.mcap_sol THEN 1 ELSE 0 END) hit2x,
+                SUM(CASE WHEN (SELECT MAX(a.mcap_sol) FROM amm_trades a WHERE a.pool=pg.pool AND a.ts BETWEEN pg.ts AND pg.ts+86400)>=10*pg.mcap_sol THEN 1 ELSE 0 END) hit10x,
+                SUM(CASE WHEN (SELECT MAX(a.mcap_sol) FROM amm_trades a WHERE a.pool=pg.pool AND a.ts BETWEEN pg.ts AND pg.ts+86400)>=100*pg.mcap_sol THEN 1 ELSE 0 END) hit100x
+                FROM pg_signals pg WHERE pg.mcap_sol>0 GROUP BY pg.tier""")
+    print("Backtest segnali post-graduation (finestre dal segnale, trade AMM tracciati):")
+    for r in rows: print(f"  {r['tier']:<8} n={r['n']} avg1h={r['avg1h'] or 0:.2f}x avg24={r['avg24'] or 0:.2f}x hit2x={r['hit2x']} hit10x={r['hit10x']} hit100x={r['hit100x']}")
+    if not rows: print("  nessun segnale post-graduation ancora.")
 
 async def _doctor(args):
     import asyncio as _a

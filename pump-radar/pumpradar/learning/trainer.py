@@ -22,7 +22,6 @@ def build_dataset(store, min_age_s=15.0, max_age_s=240.0):
     return X,np.array(y),np.array(ts),meta
 
 def _ev(mults, size=0.1, cost_pct=0.14):
-    import numpy as np
     if len(mults)==0: return 0.0
     tot=0.0
     for m in mults:
@@ -49,14 +48,24 @@ def train(store, out_path=None, min_rows=500, force=False):
     if y.sum()<30 or (len(y)-y.sum())<30: report["error"]="sbilanciamento estremo: servono più positivi e negativi"; return report
     cols=list(ScorerAgent.transform({}).keys())
     Xm=np.array([[ScorerAgent.transform(F).get(k,0.0) for k in cols] for F in X], dtype=float)
-    cut=int(len(Xm)*0.7); Xtr,ytr,Xte,yte=Xm[:cut],y[:cut],Xm[cut:],y[cut:]
+    # split temporale PER TOKEN: gli snapshot dello stesso mint non devono stare in entrambi i lati (leakage)
+    first_ts={}
+    for i,m in enumerate(meta): first_ts.setdefault(m["mint"], ts[i])
+    ordered_mints=sorted(first_ts, key=lambda mm: first_ts[mm])
+    if len(ordered_mints)>=10:
+        train_mints=set(ordered_mints[:int(len(ordered_mints)*0.7)])
+        tr_idx=[i for i,m in enumerate(meta) if m["mint"] in train_mints]; te_idx=[i for i,m in enumerate(meta) if m["mint"] not in train_mints]
+    else:
+        cut=int(len(Xm)*0.7); tr_idx=list(range(cut)); te_idx=list(range(cut,len(Xm)))
+    Xtr,ytr,Xte,yte=Xm[tr_idx],y[tr_idx],Xm[te_idx],y[te_idx]
+    report["split"]="temporale per token (train/test disgiunti per mint)"
     if ytr.sum()<15 or yte.sum()<5: report["error"]="split temporale troppo sbilanciato"; return report
     base=HistGradientBoostingClassifier(max_iter=400,learning_rate=0.05,max_leaf_nodes=15,min_samples_leaf=25,l2_regularization=1.0,random_state=7)
     model=CalibratedClassifierCV(base,method="isotonic",cv=3); model.fit(Xtr,ytr)
     p=model.predict_proba(Xte)[:,1]; auc=float(roc_auc_score(yte,p)); ap=float(average_precision_score(yte,p))
-    order=np.argsort(-p); top={}; offset=len(X)-len(Xte)
+    order=np.argsort(-p); top={}
     for frac in (0.01,0.02,0.05,0.10):
-        k=max(1,int(len(order)*frac)); sel=order[:k]; mults=np.array([meta[offset+i]["mult"] for i in sel])
+        k=max(1,int(len(order)*frac)); sel=order[:k]; mults=np.array([meta[te_idx[i]]["mult"] for i in sel])
         hit=float(yte[sel].mean()); top[f"top_{int(frac*100)}pct"]={"n":int(k),"hit_rate":round(hit,4),"base_rate":round(float(yte.mean()),4),"lift":round(hit/max(1e-9,float(yte.mean())),2),"avg_mult":round(float(mults.mean()),3),"ev_sol_per_0.1sol":round(float(_ev(mults)),5)}
     imp={}
     try:

@@ -18,8 +18,8 @@ class Notifier:
         self.count+=1; txt=self.format_signal(st,d,F,sol_price)
         if d.get("tier") in ("ENTRY","STRONG"):
             print(f"[{time.strftime('%H:%M:%S')}] {d['tier']:<6} ${st.symbol:<12} score={d['score']:.3f} mcap={F.get('mcap_sol',0):.1f}SOL age={F.get('age_s',0):.0f}s buyers={int(F.get('unique_buyers_life',0) or 0)}", flush=True)
+            await self.send(txt, html=True)   # esterni solo per segnali operativi: i WATCH restano in dashboard/log
         else: log.debug(txt)
-        await self.send(txt, html=True)
     async def send(self, text, html=False):
         if self.s.telegram_token and self.s.telegram_chat:
             try: await asyncio.to_thread(_post, f"https://api.telegram.org/bot{self.s.telegram_token}/sendMessage", {"chat_id":self.s.telegram_chat,"text":text,"parse_mode":"HTML" if html else None,"disable_web_page_preview":True})

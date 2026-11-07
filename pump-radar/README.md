@@ -111,7 +111,7 @@ pumpradar/
   orchestrator.py
   store.py    SQLite WAL
  tests/       test deterministici su decoder, agenti, runner e training
- docs/        architettura e playbook operativo
+ docs/        architettura, playbook operativo e report di audit (docs/AUDIT.md)
 ```
 
 Nessun auto-trading con chiavi private è abilitato: prima l’edge va dimostrato in paper trading.

@@ -38,7 +38,7 @@ class Orchestrator:
         self.pg_agent=PostGradAgent(); self.runner=RunnerScorer(settings); self.rbook=RunnerBook(settings,self.store)
         self.states={}; self.pools={}; self.trial_until={}; self.open_pos_mints=set(); self.open_runner_pools=set()
         self._trade_buf=[]; self._amm_buf=[]; self._orphans={}; self._seen_creates=set(); self._last_signal={}
-        self._entry_times=[]; self._pg_last_signal={}; self._quote_mints_seen=set(); self._tick_count=0
+        self._entry_times=[]; self._signal_times=[]; self._pg_last_signal={}; self._quote_mints_seen=set(); self._tick_count=0
         self.started_at=time.time(); self.stats=defaultdict(int); self._top_pg_score=0.0
 
     async def _supervise(self, name, factory):
@@ -197,6 +197,9 @@ class Orchestrator:
             if now-(st.last_ts or st.created_at)>1800 and st.pool not in self.open_runner_pools:
                 self.pools.pop(st.pool,None); continue
             F=self.pg_agent.features(st); feats[st.pool]=F; d=self.runner.decide(F); st.last_score=d["score"]; self.stats["pg_scored"]+=1
+            tok=self.states.get(st.base_mint)  # la posizione curva continua a vivere sul prezzo AMM dopo la graduation
+            if tok is not None and st.mcap_sol:
+                tok.mcap_sol=st.mcap_sol; tok.peak_mcap=max(tok.peak_mcap or 0.0, st.mcap_sol)
             self._top_pg_score=max(self._top_pg_score,d["score"])
             for k,v in d["gates"].items():
                 if not v: self.stats[f"pg_gate_ko_{k}"]+=1
@@ -249,7 +252,10 @@ class Orchestrator:
                 self._entry_times=[t for t in self._entry_times if now-t<3600]
                 if len(self._entry_times)>=self.s.max_entry_per_hour: tier="WATCH"; d={**d,"tier":"WATCH","plan":{}}
             if TIER_RANK[tier]>TIER_RANK.get(st.last_tier,0) and tier!="NONE" and now-self._last_signal.get(mint,0)>45:
-                self._last_signal[mint]=now; st.last_tier=tier
+                self._signal_times=[t for t in self._signal_times if now-t<3600]
+                if len(self._signal_times)>=self.s.max_signals_per_hour:
+                    st.last_tier=tier; self._last_signal[mint]=now; self.stats["signals_rate_limited"]+=1; continue
+                self._last_signal[mint]=now; st.last_tier=tier; self._signal_times.append(now)
                 if tier in ("ENTRY","STRONG"): self._entry_times.append(now)
                 await self._emit(st,d,F)
         for res in self.exit.tick(self.states,feats):
@@ -293,8 +299,7 @@ class Orchestrator:
         while True:
             await asyncio.sleep(60)
             try:
-                for mint,st in list(self.states.items()):
-                    if st.lane=="sol" and st.vtok: self.feed.quote_prices[mint]=st.vsol/st.vtok if st.vtok else 0.0
+                # quote_prices e' indicizzato per mint QUOTE (cross): mai scrivere chiavi di token sol-lane
                 unknown=[m for m in self._quote_mints_seen if m not in self.feed.quote_prices][:50]
                 if unknown and self.enr.sol_price:
                     usd=await self.enr.prices_usd(unknown)

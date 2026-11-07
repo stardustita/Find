@@ -1,6 +1,6 @@
 import struct
 import pytest
-from pumpradar.ingest.pumpevent import (DISC_AMM_BUY, DISC_AMM_POOL, DISC_AMM_SELL, DISC_COMPLETE,
+from pumpradar.ingest.pumpevent import (DISC_AMM_BUY, DISC_AMM_POOL, DISC_COMPLETE,
     DISC_CREATE, DISC_TRADE, SOL_QUOTE, amm_price, decode_amm_pool, decode_amm_trade,
     decode_complete, decode_create, decode_trade, is_sol_quote, classify_lane)
 from pumpradar.utils import progress_from_rtok

@@ -20,6 +20,14 @@ def _post_json_sync(url, payload, timeout=12):
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode("utf-8","replace"))
 
+def _unwrap_prices(data):
+    """Jupiter Price API restituisce {"data": {mint: {...}}}: scarta l'involucro."""
+    if isinstance(data, dict):
+        inner=data.get("data")
+        if isinstance(inner, dict): return inner
+        return data
+    return {}
+
 class Enricher:
     def __init__(self, settings, store=None):
         self.s=settings; self.store=store; self.sol_price=0.0; self.sol_price_ts=0.0
@@ -28,12 +36,11 @@ class Enricher:
         return await asyncio.to_thread(_get_json_sync, url, params)
     async def refresh_sol_price(self):
         try:
-            data=await self._get_json(self.s.jup_price_url, {"ids":SOL_MINT})
-            if isinstance(data, dict):
-                for v in data.values():
-                    if isinstance(v, dict):
-                        p=v.get("usdPrice") or v.get("price")
-                        if p: self.sol_price=float(p); self.sol_price_ts=time.time(); break
+            data=_unwrap_prices(await self._get_json(self.s.jup_price_url, {"ids":SOL_MINT}))
+            for mint,v in data.items():
+                if isinstance(v, dict):
+                    p=v.get("usdPrice") or v.get("price")
+                    if p: self.sol_price=float(p); self.sol_price_ts=time.time(); break
         except Exception as e: log.debug("SOL price: %s", e)
         return self.sol_price or 150.0
     async def sol_price_loop(self, interval=60.0):
@@ -61,14 +68,15 @@ class Enricher:
                         self.image_hashes[h]=self.image_hashes.get(h,0)+1
                     except Exception: pass
         except Exception as e: log.debug("metadata %s: %s", str(uri)[:40], e)
-        self._meta_cache[uri]=out; return out
+        if out: self._meta_cache[uri]=out
+        return out
     def image_reuse(self, h):
         return self.image_hashes.get(h,0) if h else 0
     async def prices_usd(self, mints):
         mints=[m for m in mints if m]
         if not mints: return {}
         try:
-            data=await self._get_json(self.s.jup_price_url, {"ids":",".join(mints[:50])})
+            data=_unwrap_prices(await self._get_json(self.s.jup_price_url, {"ids":",".join(mints[:50])}))
             out={}
             if isinstance(data, dict):
                 for mint,v in data.items():

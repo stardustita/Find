@@ -81,6 +81,7 @@ class PostGradAgent:
             b=sum(r["sol"] for r in ws if r["is_buy"]); s=sum(r["sol"] for r in ws if not r["is_buy"])
             return b,s,len(ws),{r["user"] for r in ws if r["is_buy"]}
         b1,s1,n1,ub1=agg(w1); b5,s5,n5,ub5=agg(w5); b15,s15,n15,ub15=agg(w15)
+        prev_ub={r["user"] for r in st.trades if r["is_buy"] and r["user"] and now-900<=r["ts"]<now-300}
         liq=max(1e-9,st.liq_sol); px=st.price or 0.0
         p1,p5,p15=st.price_at(60,now),st.price_at(300,now),st.price_at(900,now)
         init_price=(st.init_mcap_sol/st.supply) if st.supply else 0.0
@@ -91,7 +92,7 @@ class PostGradAgent:
                   "pg_buy_sell_ratio_5m":safe_div(b5,s5+0.02),"pg_n_trades_5m":n5,
                   "pg_buys_1m":len([r for r in w1 if r["is_buy"]]),"pg_unique_buyers_1m":len(ub1),
                   "pg_unique_buyers_5m":len(ub5),"pg_unique_buyers_15m":len(ub15),
-                  "pg_buyer_growth":safe_div(len(ub5-ub15),max(1,len(ub15))),
+                  "pg_buyer_growth":safe_div(len(ub5),max(1,len(prev_ub))),"pg_new_buyers_5m":len(ub5-prev_ub),
                   "pg_avg_buy_5m":safe_div(b5,max(1,len([r for r in w5 if r["is_buy"]]))),
                   "pg_max_buy_5m":max([r["sol"] for r in w5 if r["is_buy"]] or [0.0]),
                   "pg_buy_hhi_5m":hhi([r["sol"] for r in w5 if r["is_buy"]]) if w5 else 1.0,
@@ -172,6 +173,8 @@ class RunnerBook:
     def apply(self, pos, action, reason, pct, st):
         pid=int(pos["id"]); entry=float(pos["entry_mcap"] or 0) or 1e-9; cur=float(st.mcap_sol or entry); mult=cur/entry
         cost_pct=(0.30*2+self.s.slippage_bps/100.0)/100.0
+        if action=="CLOSE":  # chiude solo il residuo non ancora venduto a scaletta
+            pct=pct*max(0.0,1.0-float(self.store.kv_get(f"sold_{pid}",0.0) or 0.0))
         pnl=float(pos["size_sol"] or 0)*pct*((mult-1.0)-cost_pct); prev=float(pos["pnl_sol"] or 0.0); size=float(pos["size_sol"] or 0) or 1e-9
         peak=max(float(pos["peak_mcap"] or 0),cur,self.peak.get(pid,0.0)); self.peak[pid]=peak
         if action=="CLOSE":

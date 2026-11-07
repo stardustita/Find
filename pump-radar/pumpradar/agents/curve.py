@@ -14,7 +14,9 @@ class CurveAgent(Agent):
             ub={t.get("trader") for t in ws if t.get("is_buy") and t.get("trader")}
             return buy,sell,nb,ns,ub
         w10,w30,w60,wall=st.window(10,now),st.window(30,now),st.window(60,now),list(st.trades)
-        b10,s10,nb10,ns10,ub10=agg(w10); b30,s30,nb30,ns30,ub30=agg(w30); b60,s60,nb60,ns60,ub60=agg(w60)
+        b10=agg(w10)[0]; b30,s30,nb30,ns30,ub30=agg(w30); b60=agg(w60)[0]
+        # compratori attivi nella finestra precedente (30-60s fa): base per "nuovi" e crescita
+        prev_buyers={t.get("trader") for t in wall if t.get("is_buy") and t.get("trader") and now-60<=float(t.get("ts") or 0)<now-30}
         age=st.age(now)
         lane=getattr(st,"lane","unknown")
         std=bool(getattr(st,"curve_std", lane=="sol"))
@@ -38,7 +40,7 @@ class CurveAgent(Agent):
             "buy_sell_ratio_30s":safe_div(b30,s30+0.05),"buy_sell_ratio_life":safe_div(total_buy,total_sell+0.05),
             "n_buys_30s":nb30,"n_sells_30s":ns30,"trade_rate_30s":(nb30+ns30)/30.0,
             "unique_buyers_30s":len(ub30),"unique_buyers_life":len(st.buyers),
-            "new_buyers_30s":len(ub30-ub60),"buyer_growth":safe_div(len(ub30),max(1,len(ub60))),
+            "new_buyers_30s":len(ub30-prev_buyers),"buyer_growth":safe_div(len(ub30),max(1,len(prev_buyers))),
             "unique_buyer_per_s":safe_div(len(st.buyers),max(age,1.0)),
             "price_sol":spot_price_sol(st.vsol, st.vtok) if lane=="sol" else safe_div(getattr(st,"vquote",0.0), st.vtok),
         })

@@ -113,6 +113,9 @@ class Store:
 
     def upsert_token(self, t: dict[str, Any]):
         cols = list(t.keys())
+        if not cols: return
+        if len(cols) == 1:
+            self.execute(f"INSERT OR IGNORE INTO tokens ({cols[0]}) VALUES (?)", [t[cols[0]]]); return
         sql = f"INSERT INTO tokens ({','.join(cols)}) VALUES ({','.join('?'*len(cols))}) ON CONFLICT(mint) DO UPDATE SET " + ",".join(f"{c}=excluded.{c}" for c in cols if c != "mint")
         self.execute(sql, [t[c] for c in cols])
 
