@@ -6,17 +6,27 @@ log=logging.getLogger("cli")
 
 def _settings(): return Settings.load()
 
+def _start_dashboard(orch, s, label="live"):
+    """Avvia la dashboard sulla prima porta libera a partire da s.api_port:
+    se 8787 e' occupata (altra istanza o altro programma) prova 8788, 8789..."""
+    from .api.server import build_server
+    import threading
+    for port in range(int(s.api_port), int(s.api_port)+10):
+        try:
+            server=build_server(orch, s.api_host, port)
+        except OSError:
+            continue
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        print(f"\n  ▸ Dashboard {label}:  http://127.0.0.1:{port}\n", flush=True)
+        return server, port
+    print("  ▸ Dashboard non avviata: porte occupate; il motore continua in headless.\n", flush=True)
+    return None, None
+
 async def _run_live(args):
     from .orchestrator import Orchestrator
     s=_settings(); orch=Orchestrator(s); server=None
     if not args.no_dashboard:
-        from .api.server import build_server
-        try:
-            server=build_server(orch,s.api_host,s.api_port)
-            import threading; threading.Thread(target=server.serve_forever,daemon=True).start()
-            print(f"\n  ▸ Dashboard live:  http://127.0.0.1:{s.api_port}\n", flush=True)
-        except OSError as e:
-            print(f"  ▸ Dashboard non avviata ({e}); il motore continua in headless.\n", flush=True)
+        server,_port=_start_dashboard(orch,s,"live")
     try: await orch.run()
     finally:
         if server: server.shutdown()
@@ -39,12 +49,7 @@ async def _run_sim(args):
     s=_settings(); s.tick_seconds=max(0.05,s.tick_seconds/args.speed); s.trade_stream=False; s.narrative_enabled=False
     orch=Orchestrator(s); orch.enr.sol_price=150.0; orch.enr.fetch_metadata=_fake_meta
     if args.dashboard:
-        from .api.server import build_server
-        try:
-            server=build_server(orch,s.api_host,s.api_port)
-            import threading; threading.Thread(target=server.serve_forever,daemon=True).start()
-            print(f"  ▸ Dashboard simulazione: http://127.0.0.1:{s.api_port}", flush=True)
-        except OSError as e: print(f"  ▸ Dashboard non avviata: {e}", flush=True)
+        _start_dashboard(orch,s,"simulazione")
     market=SimMarket(orch.bus,n_tokens=args.tokens,speed=args.speed)
     print(f"  ▸ SIM: {args.tokens} token sintetici, tempo x{args.speed} (mercato sintetico calibrato, nessun denaro)\n", flush=True)
     orch_task=asyncio.create_task(orch.run(with_stream=False)); label_task=asyncio.create_task(_periodic_label(orch,args.speed))

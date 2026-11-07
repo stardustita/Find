@@ -117,3 +117,18 @@ def test_api_positions_shows_current_not_peak(tmp_path):
         assert rows and rows[0]["mult"] == pytest.approx(1.5)  # corrente, non picco 3.0
     finally:
         server.shutdown()
+
+def test_dashboard_falls_back_to_free_port(tmp_path):
+    import socket
+    from pumpradar.cli import _start_dashboard
+    from pumpradar.orchestrator import Orchestrator
+    s = cfg(tmp_path)
+    blocker = socket.socket(); blocker.bind(("127.0.0.1", 0)); blocker.listen(1)
+    s.api_port = blocker.getsockname()[1]; s.api_host = "127.0.0.1"
+    orch = Orchestrator(s)
+    server, port = _start_dashboard(orch, s, "test")
+    try:
+        assert server is not None and port == s.api_port + 1
+    finally:
+        if server: server.shutdown()
+        blocker.close()
