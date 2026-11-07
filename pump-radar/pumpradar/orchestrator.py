@@ -18,6 +18,7 @@ from .ingest.pumpevent import WSOL_MINT, amm_price, is_sol_quote
 from .ingest.stream import PumpPortalStream, parse_trade
 from .notify import Notifier
 from .runner import GradState, PostGradAgent, RunnerBook, RunnerScorer
+from .gem import slancio_signal
 from .guardian import censor_check
 from .shadow import esplosivo60_signal, pg_pullback_signal, second_leg_signal
 from .state import TokenState
@@ -42,6 +43,7 @@ class Orchestrator:
         self._trade_buf=[]; self._amm_buf=[]; self._orphans={}; self._seen_creates=set(); self._last_signal={}
         self._bars={}; self._shadow_last={}
         self._blacklist=set(); self._regime_label="unknown"; self._demoted=set(); self._tier_health={}; self._guardian_ts=0.0; self._knn=({},[],[])
+        self._gem_times=[]
         self._entry_times=[]; self._signal_times=[]; self._pg_last_signal={}; self._quote_mints_seen=set(); self._tick_count=0
         self.started_at=time.time(); self.stats=defaultdict(int); self._top_pg_score=0.0
 
@@ -337,6 +339,10 @@ class Orchestrator:
                 if ctx:
                     st.meta["shadow_ex"]=now; self.store.add_shadow("esplosivo60","curve",mint,"",now,F.get("mcap_sol",0),ctx); self.stats["shadow_esplosivo60"]+=1
                     log.info("👻 SHADOW esplosivo60 %s mcap=%.0f SOL ret60=%.0f%% buyers60=%d", mint[:8], F.get("mcap_sol",0), ctx["ret_from_min"]*100, ctx["buyers_60s"])
+            if "gem_fired" not in st.meta:
+                gctx=slancio_signal(st,F,now)
+                if gctx:
+                    st.meta["gem_fired"]=now; await self._gem_emit(st,F,gctx,now)
             d=self.scorer.decide(st,F,self.enr.sol_price); st.last_score=d["score"]; self.stats["scored"]+=1
             if now-st._last_snap>=self.s.snapshot_every_s:
                 st._last_snap=now; self.store.add_snapshot(mint,now,age,F.get("mcap_sol",0),F,d["score"],d.get("p_bond"),d.get("p_2x"),d.get("p_5x"))
@@ -377,12 +383,33 @@ class Orchestrator:
             except Exception as e: log.debug("agent %s: %s", name, e)
         F["creator_prior_launches"]=float(st.meta.get("creator_prior",0) or 0)
         return F
+    async def _gem_emit(self, st, F, ctx, now):
+        """Motore GEMME: alert in tempo reale durante la formazione dell'esplosione.
+        Passa dal Censore come ogni emissione operativa; il Revisore lo retrocede
+        da solo se la sua finestra di 100 segnali risolti torna negativa."""
+        reasons=censor_check(st,F,now,self._blacklist,self._regime_label)
+        if "curve:SLANCIO" in self._demoted: reasons.append("tier_retrocesso_revisore")
+        if reasons:
+            self.stats["gem_censored"]+=1
+            log.info("🛡️ GEMMA censurata %s: %s", st.mint[:8], ",".join(reasons))
+            return
+        self._gem_times=[t for t in self._gem_times if now-t<3600]
+        if len(self._gem_times)>=20:
+            self.stats["gem_rate_limited"]+=1; return
+        self._gem_times.append(now)
+        d={"tier":"SLANCIO","score":round(min(1.0,0.5+float(ctx["ret_from_min"])),3),
+           "gates":{"censore":[],"pattern":"slancio_intra_minuto",**ctx},
+           "plan":{"ladder":[{"mult":1.8,"sell_pct":.25},{"mult":3.0,"sell_pct":.25},{"mult":6.0,"sell_pct":.25}],
+                   "stop_loss_pct":0.35,"size_sol":float(getattr(self.s,"paper_size_sol",0.05) or 0.05)}}
+        log.info("🚀 GEMMA %s mcap=%.0f SOL ret=%.0f%% buyers15=%d (pattern madre: p2x=%.0f%%)",
+                 st.mint[:8], F.get("mcap_sol",0), ctx["ret_from_min"]*100, ctx["buyers_15s"], ctx["pattern_base_p2x"]*100)
+        await self._emit(st,d,F)
     async def _emit(self, st, d, F):
         sig={"mint":st.mint,"ts":time.time(),"tier":d["tier"],"score":d["score"],"price_sol":F.get("price_sol"),"mcap_sol":F.get("mcap_sol"),"age_s":F.get("age_s"),"sol_price":self.enr.sol_price,"gates":d["gates"],"plan":d["plan"],"features":F}
         sid=self.store.add_signal(sig); st.signals.append({"ts":sig["ts"],"tier":sig["tier"],"score":sig["score"],"id":sid}); self.stats[f"signal_{d['tier'].lower()}"]+=1
         self.bus.publish("signal",{**sig,"id":sid,"name":st.name,"symbol":st.symbol})
-        can_open = d["tier"]=="STRONG" or self.scorer.model is not None  # prior non calibrato: operativita' ridotta
-        if d["tier"] in ("ENTRY","STRONG") and can_open and self.exit.open_count()<self.s.max_open_positions:
+        can_open = d["tier"] in ("STRONG","SLANCIO")  # ricostruzione: il prior non calibrato non autorizza posizioni
+        if d["tier"] in ("ENTRY","STRONG","SLANCIO") and can_open and self.exit.open_count()<self.s.max_open_positions:
             if self.exit.realized_today()<=-float(getattr(self.s,"max_daily_loss_sol",1.0)):
                 self.stats["open_skipped_daily_loss"]+=1
             elif not self.store.one("SELECT id FROM positions WHERE mint=? AND status='open' AND kind='curve'", (st.mint,)):
