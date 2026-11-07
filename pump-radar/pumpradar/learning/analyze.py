@@ -104,10 +104,9 @@ def pg_signal_facts(store):
     return facts
 
 
-def shadow_facts(store):
-    """EV eseguibile dei segnali OMBRA (Fase 2): stessa metrica dei segnali veri,
-    cosi' il confronto e' onesto. Le strategie ombra non aprono mai posizioni."""
-    by = {}
+def _shadow_raw(store):
+    """Fatti grezzi per segnale ombra (riusati per split per strategia e per regime)."""
+    out = []
     for r in store.q("SELECT * FROM shadow_signals ORDER BY ts"):
         entry = float(r["entry_mcap"] or 0)
         if not entry: continue
@@ -119,7 +118,17 @@ def shadow_facts(store):
             sim = simulate_plan(path, entry, [(2.0, .20), (5.0, .20), (15.0, .20), (50.0, .15)], 2.0, 0.35, 0.55, AMM_COST, None, float(r["ts"]))
         if sim["net_mult"] is None: continue
         p15 = max((m for ts, m in path if ts - float(r["ts"]) <= 900), default=0.0) / entry
-        by.setdefault(r["strategy"], []).append({"peak15": p15, "peak24": sim["peak_mult"], "net_mult": sim["net_mult"]})
+        out.append({"strategy": r["strategy"], "ts": float(r["ts"]),
+                    "peak15": p15, "peak24": sim["peak_mult"], "net_mult": sim["net_mult"]})
+    return out
+
+
+def shadow_facts(store):
+    """EV eseguibile dei segnali OMBRA (Fase 2): stessa metrica dei segnali veri,
+    cosi' il confronto e' onesto. Le strategie ombra non aprono mai posizioni."""
+    by = {}
+    for f in _shadow_raw(store):
+        by.setdefault(f["strategy"], []).append(f)
     return {k: _agg(v) for k, v in sorted(by.items())}
 
 
@@ -209,6 +218,25 @@ def analyze(store) -> dict:
     out["curve"]["exit_reasons"] = {k: {"n": v[0], "avg_net_pct": round(v[1] / v[0] * 100, 1)} for k, v in sorted(reasons.items(), key=lambda kv: -kv[1][0])}
     try: out["shadow"] = shadow_facts(store)
     except Exception: out["shadow"] = {}
+    # Fase 4: gli stessi verdetti ombra letti PER REGIME (Meteorologo) e il
+    # benchmark "tenere SOL" sulla finestra dei segnali: ogni EV va confrontato.
+    out["shadow_by_regime"] = {}
+    try:
+        from .regime import regime_at, regime_series
+        series = regime_series(store)
+        byr = {}
+        for f in _shadow_raw(store):
+            byr.setdefault(f"{f['strategy']}@{regime_at(series, f['ts'])}", []).append(f)
+        out["shadow_by_regime"] = {k: _agg(v) for k, v in sorted(byr.items()) if len(v) >= 3}
+        mature = [r for r in series if r["mature"] and r["n_launch"] >= 20]
+        out["regime_now"] = mature[-1] if mature else None
+    except Exception:
+        out["regime_now"] = None
+    try:
+        from .autopsy import sol_benchmark
+        out["benchmark_sol_pct"] = sol_benchmark(store)
+    except Exception:
+        out["benchmark_sol_pct"] = None
     out["n_curve_signals"] = len(facts); out["n_pg_signals"] = len(pg)
     return out
 
@@ -240,6 +268,12 @@ def format_report(d: dict) -> str:
     if d.get("shadow"):
         L.append("=== Strategie OMBRA (mai operative finche' non promosse) ===")
         for k, a in d["shadow"].items(): L.append(f"  {k:<14} {_fmt_agg(a)}")
+    if d.get("shadow_by_regime"):
+        rn = d.get("regime_now") or {}
+        L.append(f"--- ombra per regime al segnale (ora: {rn.get('regime','?')}) ---")
+        for k, a in d["shadow_by_regime"].items(): L.append(f"  {k:<28} {_fmt_agg(a)}")
+    if d.get("benchmark_sol_pct") is not None:
+        L.append(f"  ! Benchmark 'tenere SOL' (ultimi 30g): {d['benchmark_sol_pct']:+.1f}% — ogni EV sopra va letto contro questo zero.")
     L.append("=== Post-graduation: EV eseguibile per tier ===")
     for t, a in d["pg"].get("by_tier", {}).items(): L.append(f"  {t:<8} {_fmt_agg(a)}")
     L.append(f"(segnali analizzati: curva={d.get('n_curve_signals',0)} post-grad={d.get('n_pg_signals',0)})")

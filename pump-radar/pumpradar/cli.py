@@ -210,6 +210,40 @@ async def _doctor(args):
     print("4) Telegram:", "configurato" if s.telegram_token else "non configurato (opzionale)")
     print("5) RPC WS:", ", ".join(s.rpc_ws_urls))
 
+def _lab_store():
+    from .store import Store
+    return Store(_settings().db_path)
+
+def _census(args):
+    from .learning.census import census, format_census
+    print(format_census(census(_lab_store())))
+
+def _regime(args):
+    from .learning.regime import format_regime, regime_series
+    print(format_regime(regime_series(_lab_store())))
+
+def _factory(args):
+    from .learning.factory import format_factory, run_factory
+    print(format_factory(run_factory(_lab_store())))
+
+def _actors(args):
+    from .learning.actors import build_actor_stats, format_actors
+    print(format_actors(build_actor_stats(_lab_store())))
+
+def _knn(args):
+    from .learning.knn import find_twins, format_twins
+    print(format_twins(find_twins(_lab_store(), args.mint, args.k)))
+
+def _autopsy(args):
+    import time as _t
+    from .learning.autopsy import build_autopsy, send_telegram
+    s=_settings(); md=build_autopsy(_lab_store())
+    out=Path("reports"); out.mkdir(exist_ok=True)
+    f=out/f"autopsy-{_t.strftime('%Y-%m-%d')}.md"; f.write_text(md)
+    print(md); print(f"\n[autopsy salvata in {f}]")
+    if args.send:
+        print("inviata su Telegram" if send_telegram(s, md) else "Telegram non configurato (TELEGRAM_TOKEN / TELEGRAM_CHAT)")
+
 def main(argv=None):
     ap=argparse.ArgumentParser("pumpradar"); ap.add_argument("-v","--verbose",action="store_true"); sub=ap.add_subparsers(dest="cmd",required=True)
     r=sub.add_parser("run"); r.add_argument("--no-dashboard",action="store_true")
@@ -220,6 +254,9 @@ def main(argv=None):
     sub.add_parser("report"); sub.add_parser("backtest")
     an=sub.add_parser("analyze"); an.add_argument("--json",type=str,default="")
     sub.add_parser("optimize")
+    sub.add_parser("census"); sub.add_parser("regime"); sub.add_parser("factory"); sub.add_parser("actors")
+    kn=sub.add_parser("knn"); kn.add_argument("mint"); kn.add_argument("--k",type=int,default=25)
+    au=sub.add_parser("autopsy"); au.add_argument("--send",action="store_true")
     sub.add_parser("doctor")
     p=sub.add_parser("prune"); p.add_argument("--snapshot-days",type=int,default=14); p.add_argument("--trade-days",type=int,default=45)
     args=ap.parse_args(argv); setup_logging(args.verbose)
@@ -231,6 +268,12 @@ def main(argv=None):
     elif args.cmd=="report": _report(args)
     elif args.cmd=="analyze": _analyze(args)
     elif args.cmd=="optimize": _optimize(args)
+    elif args.cmd=="census": _census(args)
+    elif args.cmd=="regime": _regime(args)
+    elif args.cmd=="factory": _factory(args)
+    elif args.cmd=="actors": _actors(args)
+    elif args.cmd=="knn": _knn(args)
+    elif args.cmd=="autopsy": _autopsy(args)
     elif args.cmd=="backtest": _backtest(args)
     elif args.cmd=="doctor": asyncio.run(_doctor(args))
     elif args.cmd=="prune":

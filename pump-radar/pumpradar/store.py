@@ -73,6 +73,16 @@ CREATE TABLE IF NOT EXISTS shadow_signals(
  id INTEGER PRIMARY KEY AUTOINCREMENT, strategy TEXT, kind TEXT, mint TEXT, pool TEXT,
  ts REAL, entry_mcap REAL, context TEXT);
 CREATE INDEX IF NOT EXISTS ix_shadow_strategy ON shadow_signals(strategy, ts);
+CREATE TABLE IF NOT EXISTS hypotheses(
+ id INTEGER PRIMARY KEY AUTOINCREMENT, rule_key TEXT UNIQUE, created_ts REAL,
+ dimension TEXT, cohort TEXT, n INTEGER, ev_pct REAL, med_pct REAL, pos_share REAL,
+ baseline_ev_pct REAL, z REAL, verdict TEXT, detail TEXT);
+CREATE TABLE IF NOT EXISTS creator_stats(
+ creator TEXT PRIMARY KEY, n_launches INTEGER, n_grad INTEGER, grad_rate REAL,
+ med_peak REAL, fast_dead_share REAL, last_ts REAL, updated REAL);
+CREATE TABLE IF NOT EXISTS wallet_flags(
+ wallet TEXT PRIMARY KEY, n_tokens INTEGER, n_repeat_creators INTEGER,
+ max_creator_launches INTEGER, bonded_share REAL, updated REAL);
 CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v TEXT);
 """
 
@@ -197,6 +207,31 @@ class Store:
         cur = self.execute("INSERT INTO shadow_signals(strategy,kind,mint,pool,ts,entry_mcap,context) VALUES(?,?,?,?,?,?,?)",
                            (strategy, kind, mint, pool, ts, entry_mcap, json.dumps(context)))
         return int(cur.lastrowid)
+
+    def add_hypothesis(self, rule_key, dimension, cohort, n, ev_pct, med_pct, pos_share, baseline_ev_pct, z, verdict, detail=""):
+        """Registro IMMUTABILE delle ipotesi della fabbrica: una regola, un verdetto.
+        INSERT OR IGNORE: la stessa regola non viene mai ri-giudicata sugli stessi dati."""
+        import time as _t
+        with self._lock:
+            self._conn.execute("""INSERT OR IGNORE INTO hypotheses(rule_key,created_ts,dimension,cohort,n,ev_pct,med_pct,pos_share,baseline_ev_pct,z,verdict,detail)
+                                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                               (rule_key, _t.time(), dimension, cohort, n, ev_pct, med_pct, pos_share, baseline_ev_pct, z, verdict, detail))
+            self._conn.commit()
+
+    def list_hypotheses(self, limit=50):
+        return self.q("SELECT * FROM hypotheses ORDER BY created_ts DESC LIMIT ?", (limit,))
+
+    def replace_actor_stats(self, creators, wallets):
+        import time as _t
+        now = _t.time()
+        with self._lock:
+            self._conn.execute("DELETE FROM creator_stats")
+            self._conn.execute("DELETE FROM wallet_flags")
+            self._conn.executemany("INSERT INTO creator_stats VALUES(?,?,?,?,?,?,?,?)",
+                                   [(c["creator"], c["n_launches"], c["n_grad"], c["grad_rate"], c["med_peak"], c["fast_dead_share"], c["last_ts"], now) for c in creators])
+            self._conn.executemany("INSERT INTO wallet_flags VALUES(?,?,?,?,?,?)",
+                                   [(w["wallet"], w["n_tokens"], w["n_repeat_creators"], w["max_creator_launches"], w["bonded_share"], now) for w in wallets])
+            self._conn.commit()
 
     def prune(self, snapshot_days: int = 14, trade_days: int = 45, bars_days: int = 30) -> dict:
         now = time.time()
