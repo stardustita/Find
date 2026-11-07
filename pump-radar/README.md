@@ -37,7 +37,8 @@ Su Linux/macOS puoi usare `./run.sh`; su Windows `run.bat`.
 | `python -m pumpradar train` | addestra modello calibrato sui tuoi dati |
 | `python -m pumpradar report` | segnali, P&L paper, wallet con timing migliore |
 | `python -m pumpradar backtest` | hit-rate dei segnali già etichettati |
-| `python -m pumpradar analyze` | Fase 0: EV eseguibile per tier/sottogruppi sui percorsi reali (docs/FASE0.md) |
+| `python -m pumpradar analyze` | Fase 0/2: EV eseguibile per tier/sottogruppi e strategie ombra (docs/FASE0.md, docs/FASE2.md) |
+| `python -m pumpradar optimize` | Fase 3: ottimizzazione controfattuale ingressi×uscite con split temporale (docs/FASE3.md) |
 | `python -m pumpradar prune` | manutenzione database |
 
 ## Come funziona

@@ -103,6 +103,25 @@ def pg_signal_facts(store):
     return facts
 
 
+def shadow_facts(store):
+    """EV eseguibile dei segnali OMBRA (Fase 2): stessa metrica dei segnali veri,
+    cosi' il confronto e' onesto. Le strategie ombra non aprono mai posizioni."""
+    by = {}
+    for r in store.q("SELECT * FROM shadow_signals ORDER BY ts"):
+        entry = float(r["entry_mcap"] or 0)
+        if not entry: continue
+        if r["kind"] == "curve":
+            path = _path(store, "trades", "mint", r["mint"], float(r["ts"]))
+            sim = simulate_plan(path, entry, [(1.8, .25), (3.0, .25), (6.0, .25)], 1.8, 0.35, 0.65, CURVE_COST, 780, float(r["ts"]))
+        else:
+            path = _path(store, "amm_trades", "pool", r["pool"], float(r["ts"]))
+            sim = simulate_plan(path, entry, [(2.0, .20), (5.0, .20), (15.0, .20), (50.0, .15)], 2.0, 0.35, 0.55, AMM_COST, None, float(r["ts"]))
+        if sim["net_mult"] is None: continue
+        p15 = max((m for ts, m in path if ts - float(r["ts"]) <= 900), default=0.0) / entry
+        by.setdefault(r["strategy"], []).append({"peak15": p15, "peak24": sim["peak_mult"], "net_mult": sim["net_mult"]})
+    return {k: _agg(v) for k, v in sorted(by.items())}
+
+
 def _agg(facts):
     n = len(facts)
     if not n:
@@ -183,6 +202,8 @@ def analyze(store) -> dict:
         if f["net_mult"] is not None:
             reasons[f["exit_reason"]][0] += 1; reasons[f["exit_reason"]][1] += f["net_mult"] - 1
     out["curve"]["exit_reasons"] = {k: {"n": v[0], "avg_net_pct": round(v[1] / v[0] * 100, 1)} for k, v in sorted(reasons.items(), key=lambda kv: -kv[1][0])}
+    try: out["shadow"] = shadow_facts(store)
+    except Exception: out["shadow"] = {}
     out["n_curve_signals"] = len(facts); out["n_pg_signals"] = len(pg)
     return out
 
@@ -210,6 +231,9 @@ def format_report(d: dict) -> str:
         for k, a in dis.get(sec, {}).items(): L.append(f"  {k:<28} {_fmt_agg(a)}")
     L.append("=== Motivi di uscita simulati (curva) ===")
     for k, v in d["curve"].get("exit_reasons", {}).items(): L.append(f"  {k:<12} n={v['n']:<4} netto medio {v['avg_net_pct']:+.1f}%")
+    if d.get("shadow"):
+        L.append("=== Strategie OMBRA (mai operative finche' non promosse) ===")
+        for k, a in d["shadow"].items(): L.append(f"  {k:<14} {_fmt_agg(a)}")
     L.append("=== Post-graduation: EV eseguibile per tier ===")
     for t, a in d["pg"].get("by_tier", {}).items(): L.append(f"  {t:<8} {_fmt_agg(a)}")
     L.append(f"(segnali analizzati: curva={d.get('n_curve_signals',0)} post-grad={d.get('n_pg_signals',0)})")

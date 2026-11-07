@@ -18,6 +18,7 @@ from .ingest.pumpevent import WSOL_MINT, amm_price, is_sol_quote
 from .ingest.stream import PumpPortalStream, parse_trade
 from .notify import Notifier
 from .runner import GradState, PostGradAgent, RunnerBook, RunnerScorer
+from .shadow import pg_pullback_signal, second_leg_signal
 from .state import TokenState
 from .store import Store
 
@@ -38,6 +39,7 @@ class Orchestrator:
         self.pg_agent=PostGradAgent(); self.runner=RunnerScorer(settings); self.rbook=RunnerBook(settings,self.store)
         self.states={}; self.pools={}; self.trial_until={}; self.open_pos_mints=set(); self.open_runner_pools=set()
         self._trade_buf=[]; self._amm_buf=[]; self._orphans={}; self._seen_creates=set(); self._last_signal={}
+        self._bars={}; self._shadow_last={}
         self._entry_times=[]; self._signal_times=[]; self._pg_last_signal={}; self._quote_mints_seen=set(); self._tick_count=0
         self.started_at=time.time(); self.stats=defaultdict(int); self._top_pg_score=0.0
 
@@ -118,7 +120,7 @@ class Orchestrator:
             st=self.states.get(mint)
             if st is None:
                 self.stats["trades_orphan"]+=1; self._maybe_recover(mint,tr); continue
-            st.observe(tr); self.stats["trades"]+=1
+            st.observe(tr); self.stats["trades"]+=1; self._update_bar(st,tr)
             if tr.get("quote_mint") and tr.get("lane")=="cross": self._quote_mints_seen.add(str(tr["quote_mint"]))
             if st.state in ("new","watch") or mint in self.open_pos_mints: self._trade_buf.append(tr)
     def _maybe_recover(self, mint, tr):
@@ -135,6 +137,31 @@ class Orchestrator:
         if len(self._orphans)>50000:
             cutoff=now-300
             for m in [m for m,r in self._orphans.items() if r[2]<cutoff][:10000]: self._orphans.pop(m,None)
+    def _update_bar(self, st, tr):
+        """Aggregato 5s per ogni lancio (primi 30 min di vita), anche se scartato:
+        e' il dataset senza survivorship bias della Fase 1."""
+        try:
+            ts=float(tr.get("ts") or 0)
+            if not ts or ts-(st.created_at or ts)>1800: return
+            b=int(ts//5*5); key=(st.mint,b); acc=self._bars.get(key)
+            if acc is None: acc=self._bars[key]=[0,0.0,0.0,set(),0.0,st.lane]
+            acc[0]+=1
+            if tr.get("is_buy"):
+                acc[1]+=float(tr.get("sol") or 0)
+                if tr.get("trader"): acc[3].add(tr["trader"])
+            else: acc[2]+=float(tr.get("sol") or 0)
+            if tr.get("mcap_sol"): acc[4]=float(tr["mcap_sol"])
+        except Exception: pass
+    def _flush_bars(self):
+        if not self._bars: return
+        nowb=int(time.time()//5*5); ready=[k for k in self._bars if k[1]<nowb]
+        if not ready: return
+        rows=[]
+        for k in ready:
+            acc=self._bars.pop(k)
+            rows.append((k[0],k[1],acc[5],acc[0],round(acc[1],4),round(acc[2],4),len(acc[3]),acc[4] or None))
+        try: self.store.add_bars(rows); self.stats["bars_written"]+=len(rows)
+        except Exception as e: log.debug("bars: %s", e)
     async def _flush_loop(self):
         while True:
             await asyncio.sleep(0.4)
@@ -143,6 +170,7 @@ class Orchestrator:
                 for tr in buf:
                     try: self.store.add_trade(tr)
                     except Exception as e: log.debug("flush trade: %s", e)
+            self._flush_bars()
             if self._amm_buf:
                 buf,self._amm_buf=self._amm_buf,[]
                 with self.store._lock:
@@ -197,6 +225,11 @@ class Orchestrator:
             if now-(st.last_ts or st.created_at)>1800 and st.pool not in self.open_runner_pools:
                 self.pools.pop(st.pool,None); continue
             F=self.pg_agent.features(st); feats[st.pool]=F; d=self.runner.decide(F); st.last_score=d["score"]; self.stats["pg_scored"]+=1
+            if now-self._shadow_last.get(st.pool,0)>1800:
+                ctx=pg_pullback_signal(st,F,now)
+                if ctx:
+                    self._shadow_last[st.pool]=now; self.store.add_shadow("pg_pullback","pg",st.base_mint,st.pool,now,st.mcap_sol,ctx); self.stats["shadow_pg_pullback"]+=1
+                    log.info("👻 SHADOW pg_pullback %s mcap=%.0f SOL dd=%.0f%% ath=%.1fx", st.base_mint[:8], st.mcap_sol, ctx["drawdown"]*100, ctx["ath_mult"])
             if PG_RANK[d["tier"]]>=PG_RANK["SETUP"]: st.confirm_count+=1
             else: st.confirm_count=0
             tok=self.states.get(st.base_mint)  # la posizione curva continua a vivere sul prezzo AMM dopo la graduation
@@ -248,7 +281,13 @@ class Orchestrator:
                 st.state="dead"; self.store.set_state(mint,"dead"); self._flush_token_stats(st)
                 if mint not in self.open_pos_mints: st.trades.clear()
                 continue
-            alive+=1; F=self._features(st); feats[mint]=F; d=self.scorer.decide(st,F,self.enr.sol_price); st.last_score=d["score"]; self.stats["scored"]+=1
+            alive+=1; F=self._features(st); feats[mint]=F
+            if "shadow_sl" not in st.meta:
+                ctx=second_leg_signal(st,F,now)
+                if ctx:
+                    st.meta["shadow_sl"]=now; self.store.add_shadow("second_leg","curve",mint,"",now,F.get("mcap_sol",0),ctx); self.stats["shadow_second_leg"]+=1
+                    log.info("👻 SHADOW second_leg %s mcap=%.0f SOL dd=%.0f%% buyers60=%d", mint[:8], F.get("mcap_sol",0), ctx["drawdown"]*100, ctx["buyers_60s"])
+            d=self.scorer.decide(st,F,self.enr.sol_price); st.last_score=d["score"]; self.stats["scored"]+=1
             if now-st._last_snap>=self.s.snapshot_every_s:
                 st._last_snap=now; self.store.add_snapshot(mint,now,age,F.get("mcap_sol",0),F,d["score"],d.get("p_bond"),d.get("p_2x"),d.get("p_5x"))
             tier=d["tier"]
